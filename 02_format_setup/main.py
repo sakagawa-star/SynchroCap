@@ -17,7 +17,7 @@ TARGET_MODEL = "DFK 33GR0234"
 TARGET_WIDTH = 1920
 TARGET_HEIGHT = 1080
 TARGET_FRAME_RATE = 30.0
-TARGET_PIXEL_FORMAT = ic4.PixelFormat.BGR8
+TARGET_PIXEL_FORMAT = ic4.PixelFormat.BayerGR8
 
 
 def first_value(obj: object, names: Iterable[str]) -> Optional[str]:
@@ -48,23 +48,51 @@ def list_target_devices() -> list[ic4.DeviceInfo]:
     return targets
 
 
-def enable_frame_rate_control(prop_map: Any) -> None:
+def set_target_frame_rate(prop_map: Any) -> bool:
     try:
-        prop_map.set_value(ic4.PropId.ACQUISITION_FRAME_RATE_ENABLE, True)
+        frame_rate_prop = prop_map.find_float(ic4.PropId.ACQUISITION_FRAME_RATE)
     except ic4.IC4Exception:
-        pass
+        return False
+
+    target = TARGET_FRAME_RATE
+    current_min = getattr(frame_rate_prop, "minimum", None)
+    current_max = getattr(frame_rate_prop, "maximum", None)
+
+    clamped = target
+    if current_min is not None and clamped < current_min:
+        clamped = current_min
+    if current_max is not None and clamped > current_max:
+        clamped = current_max
+
+    if clamped != target:
+        min_text = f"{current_min:.2f}" if current_min is not None else "Unknown"
+        max_text = f"{current_max:.2f}" if current_max is not None else "Unknown"
+        print(
+            "Requested frame rate "
+            f"{target:.2f} fps is outside the supported range ({min_text} - {max_text} fps)."
+        )
+        print(f"Using {clamped:.2f} fps instead.")
+
+    try:
+        frame_rate_prop.value = clamped
+    except ic4.IC4Exception:
+        return False
+
+    return True
 
 
 def apply_target_format(grabber: ic4.Grabber) -> bool:
     prop_map = grabber.device_property_map
     try:
-        enable_frame_rate_control(prop_map)
         prop_map.set_value(ic4.PropId.PIXEL_FORMAT, TARGET_PIXEL_FORMAT)
         prop_map.set_value(ic4.PropId.WIDTH, TARGET_WIDTH)
         prop_map.set_value(ic4.PropId.HEIGHT, TARGET_HEIGHT)
-        prop_map.set_value(ic4.PropId.ACQUISITION_FRAME_RATE, TARGET_FRAME_RATE)
-        print("Target video format applied successfully.")
-        return True
+        frame_rate_ok = set_target_frame_rate(prop_map)
+        if frame_rate_ok:
+            print("Target video format applied successfully.")
+        else:
+            print("Video format applied with the existing frame rate.")
+        return frame_rate_ok
     except ic4.IC4Exception as exc:
         print("Failed to apply target video format.")
         print(f"Error: {exc}")
@@ -107,7 +135,12 @@ def handle_device(info: ic4.DeviceInfo, label: str) -> None:
     try:
         grabber.device_open(info)
         print(f"Device {label} opened successfully.")
+    except ic4.IC4Exception as exc:
+        print(f"Failed to open device {label}.")
+        print(f"Error: {exc}")
+        return
 
+    try:
         applied = apply_target_format(grabber)
 
         pixel, width, height, frame_rate = query_active_format(grabber.device_property_map)
@@ -121,16 +154,20 @@ def handle_device(info: ic4.DeviceInfo, label: str) -> None:
 
         if not applied:
             print("Device is using the active format shown above.")
-
-        grabber.device_close()
-        print(f"Device {label} closed successfully.")
     except ic4.IC4Exception as exc:
         print(f"Failed to configure device {label}.")
         print(f"Error: {exc}")
+    except Exception as exc:  # pragma: no cover
+        print(f"Unexpected error while configuring device {label}.")
+        print(f"Error: {exc}")
+    finally:
         try:
             grabber.device_close()
+            print(f"Device {label} closed successfully.")
         except ic4.IC4Exception:
             pass
+
+        grabber = None
 
 
 def main() -> None:
