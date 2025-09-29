@@ -1,11 +1,12 @@
-"""Schedule action commands on DFK 33GR0234 cameras using PTP time."""
+"""Synchronized still capture for DFK 33GR0234 cameras using PTP and action commands."""
 
 from __future__ import annotations
 
-import threading
-from pathlib import Path
 import sys
-from typing import Any, Iterable, Optional, Tuple
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable, Optional
 
 try:
     import imagingcontrol4 as ic4
@@ -17,6 +18,9 @@ except ImportError as exc:  # pragma: no cover
 
 ACTION_DELAY_NS = 2_000_000_000  # 2 seconds
 TARGET_MODEL = "DFK 33GR0234"
+ACTION_DEVICE_KEY_VALUE = 0x12345678
+ACTION_GROUP_KEY_VALUE = 0x1
+ACTION_GROUP_MASK_VALUE = 0x1
 
 PTP_ENABLE_NAMES = (
     ic4.PropId.PTP_ENABLE,
@@ -31,7 +35,7 @@ PTP_STATUS_NAMES = (
     "PtpStatus",
 )
 PTP_LATCH_COMMANDS = (
-    ic4.PropId.TIMESTAMP_LATCH,  # some devices use the standard latch command for PTP data
+    ic4.PropId.TIMESTAMP_LATCH,
     "GevIEEE1588DataSetLatch",
     "PtpDataSetLatch",
 )
@@ -58,51 +62,55 @@ TIMESTAMP_NAMES = (
     "DeviceTimestamp",
 )
 
-ACTION_ENABLE_NAMES = (
-    "ActionSchedulerEnable",
-    "ActionScheduledTimeEnable",
+TRIGGER_SELECTOR_NAMES = (
+    ic4.PropId.TRIGGER_SELECTOR,
+    "TriggerSelector",
 )
-ACTION_START_NAMES = (
-    ic4.PropId.ACTION_SCHEDULER_TIME,
-    "ActionSchedulerStartTime",
-    "ActionScheduledStartTime",
-    "ActionScheduledTime",
+TRIGGER_MODE_NAMES = (
+    ic4.PropId.TRIGGER_MODE,
+    "TriggerMode",
 )
-ACTION_START_LOW_NAMES = (
-    "ActionSchedulerStartTimeLow",
-    "ActionScheduledTimeLow",
+TRIGGER_SOURCE_NAMES = (
+    ic4.PropId.TRIGGER_SOURCE,
+    "TriggerSource",
 )
-ACTION_START_HIGH_NAMES = (
-    "ActionSchedulerStartTimeHigh",
-    "ActionScheduledTimeHigh",
-)
-ACTION_INTERVAL_NAMES = (
-    ic4.PropId.ACTION_SCHEDULER_INTERVAL,
-    "ActionSchedulerInterval",
-    "ActionScheduledInterval",
-)
-ACTION_INTERVAL_LOW_NAMES = (
-    "ActionSchedulerIntervalLow",
-    "ActionScheduledIntervalLow",
-)
-ACTION_INTERVAL_HIGH_NAMES = (
-    "ActionSchedulerIntervalHigh",
-    "ActionScheduledIntervalHigh",
+TRIGGER_SOFTWARE_NAMES = (
+    ic4.PropId.TRIGGER_SOFTWARE,
+    "TriggerSoftware",
 )
 ACTION_SELECTOR_NAMES = (
     ic4.PropId.ACTION_SELECTOR,
-    "ActionSchedulerSelector",
     "ActionSelector",
 )
-ACTION_COMMIT_NAMES = (
-    ic4.PropId.ACTION_SCHEDULER_COMMIT,
-    "ActionSchedulerCommit",
+ACTION_DEVICE_NAMES = (
+    ic4.PropId.ACTION_DEVICE_KEY,
+    "ActionDeviceKey",
+)
+ACTION_GROUP_NAMES = (
+    ic4.PropId.ACTION_GROUP_KEY,
+    "ActionGroupKey",
+)
+ACTION_MASK_NAMES = (
+    ic4.PropId.ACTION_GROUP_MASK,
+    "ActionGroupMask",
 )
 
-SELECTOR_KEYWORD_GROUPS = ("action selector", "scheduler selector")
-ACTION_ENABLE_KEYWORDS = ("action scheduler enable", "scheduled time enable")
-ACTION_START_KEYWORDS = ("action scheduler start", "scheduled start time")
-ACTION_INTERVAL_KEYWORDS = ("action scheduler interval", "scheduled interval")
+
+@dataclass
+class DeviceSession:
+    label: str
+    serial: str
+    grabber: ic4.Grabber
+    sink: ic4.SnapSink
+    prop_map: Any
+    prop_names: list[str]
+    current_time: Optional[int]
+
+
+@dataclass
+class InterfaceSession:
+    interface: Any
+    prop_names: list[str]
 
 
 def first_value(obj: object, names: Iterable[str]) -> Optional[str]:
@@ -112,48 +120,6 @@ def first_value(obj: object, names: Iterable[str]) -> Optional[str]:
             if value:
                 return str(value)
     return None
-
-
-class SingleFrameListener(ic4.QueueSinkListener):
-    """Queue sink listener that captures a single frame."""
-
-    def __init__(self) -> None:
-        self.connected = threading.Event()
-        self.frame_ready = threading.Event()
-        self.buffer: Optional[ic4.ImageBuffer] = None
-        self.error: Optional[Exception] = None
-        self.sink: Optional[ic4.QueueSink] = None
-
-    def sink_connected(self, sink: ic4.QueueSink, image_type: ic4.ImageType, min_buffers_required: int) -> bool:
-        self.sink = sink
-        buffer_count = max(min_buffers_required, 3)
-        sink.alloc_and_queue_buffers(buffer_count)
-        self.connected.set()
-        return True
-
-    def sink_disconnected(self, sink: ic4.QueueSink) -> None:
-        self.connected.clear()
-        if not self.frame_ready.is_set():
-            self.error = RuntimeError("Stream disconnected before a frame was received")
-            self.frame_ready.set()
-
-    def frames_queued(self, sink: ic4.QueueSink) -> None:
-        try:
-            buffer = sink.pop_output_buffer()
-        except ic4.IC4Exception as exc:
-            if not self.frame_ready.is_set():
-                self.error = exc
-                self.frame_ready.set()
-            return
-
-        if self.buffer is None:
-            self.buffer = buffer
-            self.frame_ready.set()
-        else:
-            try:
-                sink.queue_buffer(buffer)
-            except ic4.IC4Exception:
-                pass
 
 
 def collect_property_names(prop_map: Any) -> list[str]:
@@ -168,72 +134,44 @@ def collect_property_names(prop_map: Any) -> list[str]:
                 names.append(str(name))
     except Exception:  # pragma: no cover
         return names
-    # Deduplicate while preserving order
     seen: set[str] = set()
-    deduped: list[str] = []
+    ordered: list[str] = []
     for name in names:
         if name not in seen:
             seen.add(name)
-            deduped.append(name)
-    return deduped
-
-
-def set_prop_value(prop_map: Any, name: str, value: Any) -> bool:
-    setter = getattr(prop_map, "try_set_value", None)
-    if callable(setter):
-        try:
-            if setter(name, value):
-                return True
-        except ic4.IC4Exception:
-            return False
-    try:
-        prop_map.set_value(name, value)
-        return True
-    except ic4.IC4Exception:
-        return False
-
-
-def property_exists(prop_names: Iterable[str], candidate: str) -> bool:
-    candidate_lower = candidate.lower()
-    for name in prop_names:
-        if name.lower() == candidate_lower:
-            return True
-    return False
+            ordered.append(name)
+    return ordered
 
 
 def find_property_name(prop_names: Iterable[str], explicit: Iterable[str], keyword_groups: Iterable[str]) -> Optional[str]:
     for name in explicit:
-        if property_exists(prop_names, name):
+        if name.lower() in (p.lower() for p in prop_names):
             return name
     for group in keyword_groups:
         tokens = group.split()
-        for name in prop_names:
-            lower = name.lower()
+        for candidate in prop_names:
+            lower = candidate.lower()
             if all(token in lower for token in tokens):
-                return name
+                return candidate
     return None
 
 
-def is_target_device(info: ic4.DeviceInfo) -> bool:
-    model = first_value(info, ("model_name", "model", "display_name"))
-    return bool(model and TARGET_MODEL in model)
-
-
-def list_target_devices() -> list[ic4.DeviceInfo]:
-    print("Enumerating connected cameras...")
-    devices = list(ic4.DeviceEnum.devices())
-    targets = [info for info in devices if is_target_device(info)]
-
-    if not targets:
-        print(f"No {TARGET_MODEL} cameras detected.")
-    else:
-        print(f"Detected {len(targets)} {TARGET_MODEL} device(s).")
-
-    return targets
-
-
-def _is_feature_not_found(exc: ic4.IC4Exception) -> bool:
-    return getattr(exc, "code", None) == getattr(ic4.Error, "GenICamFeatureNotFound", None)
+def set_property(prop_map: Any, prop_names: list[str], explicit: Iterable[str], keywords: Iterable[str], value: Any) -> Optional[str]:
+    name = find_property_name(prop_names, explicit, keywords)
+    if not name:
+        return None
+    setter = getattr(prop_map, "try_set_value", None)
+    if callable(setter):
+        try:
+            if setter(name, value):
+                return name
+        except ic4.IC4Exception:
+            return None
+    try:
+        prop_map.set_value(name, value)
+        return name
+    except ic4.IC4Exception:
+        return None
 
 
 def read_bool(prop_map: Any, name: str) -> Optional[bool]:
@@ -244,7 +182,7 @@ def read_bool(prop_map: Any, name: str) -> Optional[bool]:
             if value is not None:
                 return bool(value)
         except ic4.IC4Exception:
-            pass
+            return None
     try:
         return bool(prop_map.get_value_bool(name))
     except ic4.IC4Exception:
@@ -259,7 +197,7 @@ def read_int(prop_map: Any, name: str) -> Optional[int]:
             if value is not None:
                 return int(value)
         except ic4.IC4Exception:
-            pass
+            return None
     try:
         return int(prop_map.get_value_int(name))
     except ic4.IC4Exception:
@@ -274,358 +212,195 @@ def read_str(prop_map: Any, name: str) -> Optional[str]:
             if value is not None:
                 return str(value)
         except ic4.IC4Exception:
-            pass
+            return None
     try:
         return prop_map.get_value_str(name)
     except ic4.IC4Exception:
         return None
 
 
-def try_set_ptp_enabled(prop_map: Any, prop_names: list[str]) -> tuple[bool, Optional[str]]:
+def try_enable_ptp(prop_map: Any, prop_names: list[str]) -> Optional[str]:
     name = find_property_name(prop_names, PTP_ENABLE_NAMES, ENABLE_KEYWORD_GROUPS)
     if not name:
         print("PTP enable property not found on device.")
-        return False, None
+        return None
+    setter = getattr(prop_map, "try_set_value", None)
+    if callable(setter):
+        try:
+            result = setter(name, True)
+            if result:
+                return name
+        except ic4.IC4Exception as exc:
+            print(f"Failed to enable PTP using property '{name}'.")
+            print(f"Error: {exc}")
+            return None
     try:
-        setter = getattr(prop_map, "try_set_value", None)
-        if callable(setter):
-            success = setter(name, True)
-            if success is False:
-                print(f"PTP enable property '{name}' rejected the requested value.")
-                return False, name
-            if success:
-                value = read_bool(prop_map, name)
-                return (bool(value) if value is not None else True), name
         prop_map.set_value(name, True)
-        value = read_bool(prop_map, name)
-        return (bool(value) if value is not None else True), name
+        return name
     except ic4.IC4Exception as exc:
         print(f"Failed to enable PTP using property '{name}'.")
         print(f"Error: {exc}")
-        return False, name
-
-
-def latch_ptp_dataset(prop_map: Any, prop_names: list[str]) -> Optional[str]:
-    name = find_property_name(prop_names, PTP_LATCH_COMMANDS, LATCH_KEYWORD_GROUPS)
-    if not name:
-        return None
-    try:
-        prop_map.execute_command(name)
-        return name
-    except ic4.IC4Exception as exc:
-        if _is_feature_not_found(exc):
-            return None
-        print(f"Failed to execute PTP latch command '{name}'.")
-        print(f"Error: {exc}")
-        return None
-    except AttributeError:
         return None
 
 
-def read_ptp_status(prop_map: Any, prop_names: list[str]) -> Optional[str]:
-    name = find_property_name(prop_names, PTP_STATUS_NAMES, STATUS_KEYWORD_GROUPS)
-    if not name:
-        return None
-    return read_str(prop_map, name)
-
-
-def read_ptp_offset(prop_map: Any, prop_names: list[str]) -> Optional[int]:
-    name = find_property_name(prop_names, PTP_OFFSET_NAMES, OFFSET_KEYWORD_GROUPS)
-    if not name:
-        return None
-    return read_int(prop_map, name)
-
-
-def latch_timestamp(prop_map: Any, prop_names: list[str]) -> Optional[str]:
-    name = find_property_name(prop_names, TIMESTAMP_LATCH_COMMANDS, ("timestamp latch",))
-    if not name:
-        return None
-    try:
-        prop_map.execute_command(name)
-        return name
-    except ic4.IC4Exception as exc:
-        if _is_feature_not_found(exc):
-            return None
-        print(f"Failed to execute timestamp latch command '{name}'.")
-        print(f"Error: {exc}")
-        return None
-    except AttributeError:
-        return None
-
-
-def read_timestamp(prop_map: Any, prop_names: list[str]) -> Optional[int]:
-    name = find_property_name(prop_names, TIMESTAMP_NAMES, ("timestamp",))
-    if not name:
-        candidates = [p for p in prop_names if "time" in p.lower() or "timestamp" in p.lower()]
-        if candidates:
-            print("Timestamp property not found. Candidates:")
-            for candidate in candidates:
-                print(f"  {candidate}")
-        return None
-    return read_int(prop_map, name)
-
-
-def find_selector(prop_names: list[str]) -> Optional[str]:
-    return find_property_name(prop_names, ACTION_SELECTOR_NAMES, SELECTOR_KEYWORD_GROUPS)
-
-
-def set_selector(prop_map: Any, prop_names: list[str], value: int) -> Optional[str]:
-    name = find_selector(prop_names)
-    if not name:
-        return None
-    try:
-        prop_map.set_value(name, value)
-        return name
-    except ic4.IC4Exception as exc:
-        print(f"Failed to set action selector '{name}' to {value}.")
-        print(f"Error: {exc}")
-        return name
-
-
-def write_uint64(prop_map: Any, prop_names: list[str], base_names: Iterable[str],
-                 low_names: Iterable[str], high_names: Iterable[str],
-                 keyword_groups: Iterable[str], value: int) -> Optional[str]:
-    base = find_property_name(prop_names, base_names, keyword_groups)
-    if base and property_exists(prop_names, base):
-        try:
-            prop_map.set_value(base, value)
-            return base
-        except ic4.IC4Exception as exc:
-            print(f"Failed to set property '{base}' to {value}.")
-            print(f"Error: {exc}")
-            return None
-    low_name = find_property_name(prop_names, low_names, keyword_groups)
-    high_name = find_property_name(prop_names, high_names, keyword_groups)
-    if low_name and high_name:
-        low = value & 0xFFFFFFFF
-        high = (value >> 32) & 0xFFFFFFFF
-        try:
-            prop_map.set_value(low_name, low)
-            prop_map.set_value(high_name, high)
-            return f"{high_name}/{low_name}"
-        except ic4.IC4Exception as exc:
-            print(f"Failed to set split properties '{high_name}'/'{low_name}'.")
-            print(f"Error: {exc}")
-            return None
-    print("Suitable property for writing 64-bit value not found.")
-    return None
-
-
-def set_boolean(prop_map: Any, prop_names: list[str], explicit: Iterable[str], keywords: Iterable[str], value: bool) -> Optional[str]:
+def latch_command(prop_map: Any, prop_names: list[str], explicit: Iterable[str], keywords: Iterable[str]) -> Optional[str]:
     name = find_property_name(prop_names, explicit, keywords)
     if not name:
         return None
     try:
-        setter = getattr(prop_map, "try_set_value", None)
-        if callable(setter):
-            result = setter(name, value)
-            if result:
-                return name
-            if result is False:
-                print(f"Property '{name}' rejected value {value}.")
-                return None
-        prop_map.set_value(name, value)
+        prop_map.execute_command(name)
         return name
-    except ic4.IC4Exception as exc:
-        print(f"Failed to set property '{name}' to {value}.")
-        print(f"Error: {exc}")
+    except ic4.IC4Exception:
         return None
 
 
-def schedule_action(
-    prop_map: Any,
-    prop_names: list[str],
-    start_ns: int,
-    interval_ns: Optional[int],
-) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
-    selector_used = set_selector(prop_map, prop_names, 0)
-    enable_name = set_boolean(prop_map, prop_names, ACTION_ENABLE_NAMES, ACTION_ENABLE_KEYWORDS, False)
-    start_name = write_uint64(
-        prop_map,
-        prop_names,
-        ACTION_START_NAMES,
-        ACTION_START_LOW_NAMES,
-        ACTION_START_HIGH_NAMES,
-        ACTION_START_KEYWORDS,
-        start_ns,
-    )
-    if start_name is None:
-        print("Unable to write action start time.")
-        return False, selector_used, None, None
-    interval_name = None
-    if interval_ns is not None:
-        interval_name = write_uint64(
-            prop_map,
-            prop_names,
-            ACTION_INTERVAL_NAMES,
-            ACTION_INTERVAL_LOW_NAMES,
-            ACTION_INTERVAL_HIGH_NAMES,
-            ACTION_INTERVAL_KEYWORDS,
-            interval_ns,
-        )
-        if interval_name is None:
-            print("Failed to set action interval property.")
-            interval_name = None
-    set_boolean(prop_map, prop_names, ACTION_ENABLE_NAMES, ACTION_ENABLE_KEYWORDS, True)
-    commit_name = find_property_name(prop_names, ACTION_COMMIT_NAMES, ("action scheduler commit",))
-    if commit_name:
-        try:
-            prop_map.execute_command(commit_name)
-        except ic4.IC4Exception as exc:
-            print(f"Failed to execute action commit command '{commit_name}'.")
-            print(f"Error: {exc}")
-            return False, selector_used, interval_name if interval_ns is not None else None, None
-    return True, selector_used, interval_name if interval_ns is not None else None, commit_name
-
-
-def configure_action_trigger(prop_map: Any) -> None:
-    try_set = set_prop_value
-    try_set(prop_map, ic4.PropId.ACTION_SELECTOR, 0)
-    try_set(prop_map, ic4.PropId.ACTION_DEVICE_KEY, 0x12345678)
-    try_set(prop_map, ic4.PropId.ACTION_GROUP_KEY, 0x1)
-    try_set(prop_map, ic4.PropId.ACTION_GROUP_MASK, 0x1)
-    try_set(prop_map, ic4.PropId.TRIGGER_SELECTOR, "FrameStart")
-    try_set(prop_map, ic4.PropId.TRIGGER_MODE, "On")
-    try_set(prop_map, ic4.PropId.TRIGGER_SOURCE, "Action0")
-
-
-def capture_single_frame(
-    grabber: ic4.Grabber,
-    listener: SingleFrameListener,
-    start_time_ns: int,
-    prop_map: Any,
-    prop_names: list[str],
-    output_path: Path,
-    expected_delay_seconds: float,
-) -> Tuple[Optional[Path], Optional[str], Optional[str], Optional[str]]:
-    sink = ic4.QueueSink(listener)
-    try:
-        grabber.stream_setup(sink)
-    except ic4.IC4Exception as exc:
-        print("Failed to set up stream for capture.")
-        print(f"Error: {exc}")
-        return None, None, None, None
-
-    if not listener.connected.wait(timeout=2.0):
-        print("Queue sink did not connect in time.")
-        return None, None, None, None
-
-    scheduled, selector_name, interval_name, commit_name = schedule_action(
-        prop_map,
-        prop_names,
-        start_time_ns,
-        None,
-    )
-
-    if not scheduled:
-        print("Action scheduling aborted due to configuration errors.")
-        return None, selector_name, interval_name, commit_name
-
-    wait_seconds = expected_delay_seconds + 5.0
-    if not listener.frame_ready.wait(timeout=wait_seconds):
-        print("Timed out waiting for action-triggered frame.")
-        return None, selector_name, interval_name, commit_name
-
-    if listener.error:
-        print(f"Capture listener error: {listener.error}")
-        return None, selector_name, interval_name, commit_name
-
-    buffer = listener.buffer
-    if buffer is None:
-        print("Capture completed without receiving a frame.")
-        return None, selector_name, interval_name, commit_name
-
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        buffer.save_as_png(str(output_path))
-    except ic4.IC4Exception as exc:
-        print("Failed to save image buffer.")
-        print(f"Error: {exc}")
-        return None, selector_name, interval_name, commit_name
-    listener.buffer = None
-    return output_path.resolve(), selector_name, interval_name, commit_name
-
-
-def handle_device(info: ic4.DeviceInfo, label: str) -> None:
-    model = first_value(info, ("model_name", "model", "display_name")) or "Unknown"
+def prepare_device(info: ic4.DeviceInfo, label: str) -> Optional[DeviceSession]:
     serial = first_value(info, ("serial", "serial_number", "unique_id")) or "Unknown"
-
-    print(f"Device {label} model_name: {model}")
     print(f"Device {label} serial: {serial}")
 
     grabber = ic4.Grabber()
-    print(f"Opening device {label}...")
     try:
         grabber.device_open(info)
         print(f"Device {label} opened successfully.")
     except ic4.IC4Exception as exc:
         print(f"Failed to open device {label}.")
         print(f"Error: {exc}")
-        return
+        return None
+
+    prop_map = grabber.device_property_map
+    prop_names = collect_property_names(prop_map)
+
+    ptp_name = try_enable_ptp(prop_map, prop_names)
+    if ptp_name:
+        print(f"Device {label} PTP enable property: {ptp_name}")
+    latch_command(prop_map, prop_names, PTP_LATCH_COMMANDS, LATCH_KEYWORD_GROUPS)
+    status = read_str(prop_map, find_property_name(prop_names, PTP_STATUS_NAMES, STATUS_KEYWORD_GROUPS) or "")
+    if status:
+        print(f"Device {label} PTP status: {status}")
+    offset_name = find_property_name(prop_names, PTP_OFFSET_NAMES, OFFSET_KEYWORD_GROUPS)
+    if offset_name:
+        offset_value = read_int(prop_map, offset_name)
+        if offset_value is not None:
+            print(f"Device {label} PTP offset: {offset_value} ns")
+
+    set_property(prop_map, prop_names, ACTION_SELECTOR_NAMES, ("action selector",), 0)
+    set_property(prop_map, prop_names, ACTION_DEVICE_NAMES, ("action device key",), ACTION_DEVICE_KEY_VALUE)
+    set_property(prop_map, prop_names, ACTION_GROUP_NAMES, ("action group key",), ACTION_GROUP_KEY_VALUE)
+    set_property(prop_map, prop_names, ACTION_MASK_NAMES, ("action group mask",), ACTION_GROUP_MASK_VALUE)
+    set_property(prop_map, prop_names, TRIGGER_SELECTOR_NAMES, ("trigger selector",), "FrameStart")
+    set_property(prop_map, prop_names, TRIGGER_MODE_NAMES, ("trigger mode",), "On")
+    set_property(prop_map, prop_names, TRIGGER_SOURCE_NAMES, ("trigger source",), "Action0")
+
+    latch_command(prop_map, prop_names, TIMESTAMP_LATCH_COMMANDS, ("timestamp latch",))
+    current_time = read_int(prop_map, find_property_name(prop_names, TIMESTAMP_NAMES, ("timestamp",)) or "")
 
     try:
-        prop_map = grabber.device_property_map
-        prop_names = collect_property_names(prop_map)
-        enabled, enabled_name = try_set_ptp_enabled(prop_map, prop_names)
-        if enabled_name:
-            print(f"Device {label} PTP enable property: {enabled_name}")
-        if not enabled:
-            print(f"Warning: device {label} PTP could not be confirmed as enabled.")
-        latch_ptp_dataset(prop_map, prop_names)
-        status = read_ptp_status(prop_map, prop_names)
-        offset = read_ptp_offset(prop_map, prop_names)
-        if status:
-            print(f"Device {label} PTP status: {status}")
-        if offset is not None:
-            print(f"Device {label} PTP offset: {offset} ns")
-
-        latch_timestamp(prop_map, prop_names)
-        current_time = read_timestamp(prop_map, prop_names)
-        if current_time is None:
-            print(f"Device {label} is missing a timestamp property required for scheduling.")
-            return
-
-        start_time = current_time + ACTION_DELAY_NS
-        delay_seconds = max((start_time - current_time) / 1_000_000_000, 0.0)
-        configure_action_trigger(prop_map)
-
-        listener = SingleFrameListener()
-        output_path = Path(f"camera_{serial}.png")
-
-        capture_path, selector_name, interval_name, commit_name = capture_single_frame(
-            grabber,
-            listener,
-            start_time,
-            prop_map,
-            prop_names,
-            output_path,
-            delay_seconds,
-        )
-
-        if selector_name:
-            print(f"Device {label} action selector configured via '{selector_name}'.")
-        if commit_name:
-            print(f"Device {label} commit command executed: {commit_name}")
-
-        if capture_path:
-            print(f"Device {label} scheduled trigger time: {start_time} ns")
-            print(f"Device {label} image saved to: {capture_path}")
-        else:
-            print(f"Device {label} failed to capture image with scheduled action.")
+        sink = ic4.SnapSink()
+        grabber.stream_setup(sink)
     except ic4.IC4Exception as exc:
-        print(f"Failed to configure action scheduler for device {label}.")
+        print(f"Failed to set up SnapSink for device {label}.")
         print(f"Error: {exc}")
-    finally:
-        try:
-            grabber.stream_stop()
-        except ic4.IC4Exception:
-            pass
         try:
             grabber.device_close()
-            print(f"Device {label} closed successfully.")
         except ic4.IC4Exception:
             pass
-        grabber = None
+        return None
+
+    return DeviceSession(
+        label=label,
+        serial=serial,
+        grabber=grabber,
+        sink=sink,
+        prop_map=prop_map,
+        prop_names=prop_names,
+        current_time=current_time,
+    )
+
+
+def execute_interface_action(interface: Any, prop_names: list[str], start_time_ns: int) -> bool:
+    prop_map = interface.property_map
+    set_property(prop_map, prop_names, ACTION_DEVICE_NAMES, ("action device key",), ACTION_DEVICE_KEY_VALUE)
+    set_property(prop_map, prop_names, ACTION_GROUP_NAMES, ("action group key",), ACTION_GROUP_KEY_VALUE)
+    set_property(prop_map, prop_names, ACTION_MASK_NAMES, ("action group mask",), ACTION_GROUP_MASK_VALUE)
+    set_property(prop_map, prop_names, ("ActionScheduledTimeEnable",), ("scheduled time enable",), True)
+    name = find_property_name(prop_names, ("ActionScheduledTime",), ("scheduled time",))
+    if not name:
+        print("Interface is missing ActionScheduledTime property.")
+        return False
+    try:
+        interface.property_map.set_value(name, start_time_ns)
+    except ic4.IC4Exception as exc:
+        print("Failed to set interface scheduled time.")
+        print(f"Error: {exc}")
+        return False
+    command = find_property_name(prop_names, ("ActionCommand",), ("action command",))
+    if not command:
+        print("Interface is missing ActionCommand property.")
+        return False
+    try:
+        interface.property_map.execute_command(command)
+        set_property(prop_map, prop_names, ("ActionScheduledTimeEnable",), ("scheduled time enable",), False)
+        return True
+    except ic4.IC4Exception as exc:
+        print(f"Failed to execute interface action command '{command}'.")
+        print(f"Error: {exc}")
+        return False
+
+
+def capture_with_fallback(session: DeviceSession, start_time_ns: int) -> Optional[Path]:
+    timeout_ms = max(int(ACTION_DELAY_NS / 1_000_000) + 5000, 3000)
+    buffer: Optional[ic4.ImageBuffer]
+    try:
+        buffer = session.sink.snap_single(timeout_ms)
+    except ic4.IC4Exception as exc:
+        print(f"Device {session.label} timed out waiting for action command.")
+        print(f"Error: {exc}")
+        buffer = None
+
+    if buffer is None:
+        print(f"Device {session.label} falling back to software trigger.")
+        set_property(session.prop_map, session.prop_names, TRIGGER_SOURCE_NAMES, ("trigger source",), "Software")
+        set_property(session.prop_map, session.prop_names, TRIGGER_MODE_NAMES, ("trigger mode",), "On")
+        trigger_name = find_property_name(session.prop_names, TRIGGER_SOFTWARE_NAMES, ("trigger software",))
+        if trigger_name:
+            try:
+                session.prop_map.execute_command(trigger_name)
+            except ic4.IC4Exception as exc:
+                print(f"Device {session.label} software trigger failed.")
+                print(f"Error: {exc}")
+        try:
+            buffer = session.sink.snap_single(5000)
+        except ic4.IC4Exception as exc:
+            print(f"Device {session.label} still failed to deliver a frame.")
+            print(f"Error: {exc}")
+            buffer = None
+        set_property(session.prop_map, session.prop_names, TRIGGER_SOURCE_NAMES, ("trigger source",), "Action0")
+        set_property(session.prop_map, session.prop_names, TRIGGER_MODE_NAMES, ("trigger mode",), "On")
+
+    if buffer is None:
+        return None
+
+    output_path = Path(f"camera_{session.serial}.png")
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        buffer.save_as_png(str(output_path))
+        return output_path.resolve()
+    except ic4.IC4Exception as exc:
+        print(f"Device {session.label} failed to save captured frame.")
+        print(f"Error: {exc}")
+        return None
+
+
+def cleanup_session(session: DeviceSession) -> None:
+    try:
+        session.grabber.stream_stop()
+    except ic4.IC4Exception:
+        pass
+    try:
+        session.grabber.device_close()
+        print(f"Device {session.label} closed successfully.")
+    except ic4.IC4Exception:
+        pass
 
 
 def main() -> None:
@@ -636,20 +411,43 @@ def main() -> None:
         print(f"Error: {exc}")
         return
 
-    devices: list[Optional[ic4.DeviceInfo]] = []
+    sessions: list[DeviceSession] = []
+    interfaces: dict[int, InterfaceSession] = {}
     try:
-        devices = list_target_devices()
+        devices = [info for info in ic4.DeviceEnum.devices() if TARGET_MODEL in (first_value(info, ("model_name", "model", "display_name")) or "")]
         if not devices:
+            print(f"No {TARGET_MODEL} cameras detected.")
             return
+        print(f"Detected {len(devices)} {TARGET_MODEL} device(s).")
 
         for index, info in enumerate(devices, start=1):
-            handle_device(info, f"#{index}")
-            devices[index - 1] = None
+            session = prepare_device(info, f"#{index}")
+            if session:
+                sessions.append(session)
+                interface = getattr(info, "interface", None)
+                if interface is not None:
+                    interfaces[id(interface)] = InterfaceSession(interface, collect_property_names(interface.property_map))
 
-        del info
-        devices.clear()
-        del devices
+        if not sessions:
+            print("No devices ready for capture.")
+            return
+
+        times = [s.current_time for s in sessions if s.current_time is not None]
+        start_time_ns = (min(times) if times else int(time.time() * 1_000_000_000)) + ACTION_DELAY_NS
+
+        for interface_session in interfaces.values():
+            execute_interface_action(interface_session.interface, interface_session.prop_names, start_time_ns)
+
+        for session in sessions:
+            path = capture_with_fallback(session, start_time_ns)
+            if path:
+                print(f"Device {session.label} scheduled trigger time: {start_time_ns} ns")
+                print(f"Device {session.label} image saved to: {path}")
+            else:
+                print(f"Device {session.label} failed to capture image.")
     finally:
+        for session in sessions:
+            cleanup_session(session)
         ic4.Library.exit()
         print("Library shutdown complete.")
 
