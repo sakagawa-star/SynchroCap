@@ -88,8 +88,8 @@ class CamListener(ic4.QueueSinkListener):
                 self.csv_w.writerow([frame_no, timestamp])
 
                 # 画像は可逆のBMPで保存（検証向き）。容量が気になればPNG/JPEGへ変更可能。
-                bmp_name = f"{self.cam_name}_{frame_no}_{timestamp}.bmp"
-                buf.save_as_bmp(os.path.join(OUT_DIR, bmp_name))
+                buff_name = f"{self.cam_name}_{frame_no}_{timestamp}.png"
+                buf.save_as_png(os.path.join(OUT_DIR, buff_name))
             finally:
                 buf.release()  # ★必ず返却
 
