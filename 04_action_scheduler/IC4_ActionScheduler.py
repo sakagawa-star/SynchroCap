@@ -3,6 +3,7 @@ import cv2
 import time
 import imagingcontrol4 as ic4
 import csv
+import numpy as np
 
 # ===== ユーザー設定 =====
 # すべての出力（BMP/CSV）のルートディレクトリ
@@ -88,8 +89,28 @@ class CamListener(ic4.QueueSinkListener):
                 self.csv_w.writerow([frame_no, timestamp])
 
                 # 画像は可逆のBMPで保存（検証向き）。容量が気になればPNG/JPEGへ変更可能。
-                buff_name = f"{self.cam_name}_{frame_no}_{timestamp}.png"
-                buf.save_as_png(os.path.join(OUT_DIR, buff_name))
+                buff_name = f"{self.cam_name}_{frame_no}_{timestamp}.jpg"
+                img = buf.numpy_wrap()
+                
+                gpu_mat = cv2.cuda_GpuMat()
+                gpu_mat.upload(img)
+                #gpu_bgr = cv2.cuda.cvtColor(gpu_mat, cv2.COLOR_BayerBG2BGR)
+                gpu_bgr = cv2.cuda.cvtColor(gpu_mat, cv2.COLOR_BayerGR2BGR)
+
+                #import nvidia.dali.fn as fn
+                #import nvidia.dali.types as types
+                #from nvidia.dali.pipeline import Pipeline
+
+                #pipe = Pipeline(batch_size=1, num_threads=1, device_id=0)
+                #while pipe:
+                #    encoded = fn.image_encoder(gpu_bgr, format=types.JPEG, quality=90)
+                #    pipe.set_outputs(encoded)
+                #pipe.build()
+                #jpeg_data = pipe.run()[0].at(0)
+                #with open(os.path.join(OUT_DIR, buff_name), "wb") as f:
+                #    f.write(jpeg_data)
+                bgr_img = gpu_bgr.download()
+                cv2.imwrite(os.path.join(OUT_DIR, buff_name), bgr_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
             finally:
                 buf.release()  # ★必ず返却
 
