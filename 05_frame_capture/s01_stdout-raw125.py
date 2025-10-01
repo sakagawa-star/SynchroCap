@@ -92,7 +92,7 @@ def allocate_queue_sink(
         sink,
         setup_option=ic4.StreamSetupOption.DEFER_ACQUISITION_START,
     )
-    num_buffers = 10
+    num_buffers = 1000
     sink.alloc_and_queue_buffers(num_buffers)
     return sink, listener
 
