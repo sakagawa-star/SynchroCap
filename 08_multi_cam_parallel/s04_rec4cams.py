@@ -18,7 +18,7 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 
-SERIAL_NUMBERS = ["05520125", "05520126"]
+SERIAL_NUMBERS = ["05520125", "05520126", "05520128", "05520129"]
 
 
 def find_device_by_serial(serial: str) -> ic4.DeviceInfo:
@@ -198,6 +198,9 @@ def make_output_filename(serial: str) -> str:
 def build_ffmpeg_command(width: int, height: int, frame_rate: float, output_filename: str) -> list[str]:
     return [
         "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-loglevel", "error",
         "-f",
         "rawvideo",
         "-pix_fmt",
