@@ -85,89 +85,120 @@ If not converged, it prints helpful diagnostics (e.g., multiple Masters, no Mast
 
 
 ##################################
-# chktimestat.py
+# `chktimestat.py` — Check camera timestamps against Ubuntu (PTP GM)
 
-A utility to evaluate timestamp alignment across multiple industrial cameras synchronized via PTP on Ubuntu.
-It verifies the host is PTP Grandmaster via `pmc`, triggers a simultaneous timestamp latch on all cameras, reads latched device times, and reports per-camera deltas (displayed in milliseconds; internal math in nanoseconds).
+A small CLI tool to verify time alignment of multiple network cameras against the host PC acting as PTP Grandmaster (GM).
+It latches each camera’s device timestamp, takes a host reference time around the latch, and prints the per-camera deltas and pass/fail.
+
+## What it does
+
+* Verifies the host’s PTP role via `pmc` (`CURRENT_DATA_SET`) and shows the GM clock ID.
+* For each sample:
+
+  * Records the host time just **before** and **after** issuing a **simultaneous TIMESTAMP_LATCH** to all cameras.
+  * Uses the **midpoint** of the two host times as the GM reference.
+  * Reads each camera’s `TIMESTAMP_LATCH_VALUE` (ns) and computes `camera_time_ns - host_ref_ns`.
+  * Prints deltas in **milliseconds** (display only) and OK/NG based on a threshold (default ±3 ms).
+* Optionally prints simple statistics when taking multiple samples.
+* Returns exit code `0` if all cameras pass, otherwise `2` (non-fatal per camera; no early abort).
 
 ## Requirements
 
-* Ubuntu with `linuxptp` (`pmc` available and connected to `/var/run/ptp4l` via UDS)
-* The Imaging Source `imagingcontrol4` (IC4) Python package
-* Cameras that expose `TIMESTAMP_LATCH` and `TIMESTAMP_LATCH_VALUE` via IC4
-* No sudo required; `pmc` is used via UDS only
+* Ubuntu with `linuxptp` installed and `pmc` accessible (e.g. `/usr/sbin/pmc`).
+* `ptp4l` running and the host synchronized as **Grandmaster** (or the tool will error).
+* Python 3.9+.
+* The Imaging Source **IC Imaging Control 4** Python package (`imagingcontrol4`) and supported cameras.
 
-## How it works
+> Note: A PTP-capable NIC/PHC is **not required** for this tool’s GM reference — it uses `time.time_ns()` on the host, bracketed around the camera latch, and takes the midpoint.
 
-1. Verify Grandmaster status using `pmc GET CURRENT_DATA_SET` (expects `stepsRemoved == 0`).
-2. Open target cameras by serial.
-3. For each sample:
+## Install
 
-   * Trigger `TIMESTAMP_LATCH` on all cameras first.
-   * Read `TIMESTAMP_LATCH_VALUE` from each camera.
-   * Compute the median of camera times.
-   * Print each camera’s delta to the median in milliseconds and verdict against a ns threshold.
-4. If multiple samples, print simple statistics.
+```bash
+# linuxptp
+sudo apt-get install linuxptp
+
+# IC4 Python SDK (per vendor docs)
+pip install imagingcontrol4
+```
 
 ## Usage
 
 ```bash
-python chktimestat.py
-python chktimestat.py --serials 05520125,05520126,05520128,05520129
-python chktimestat.py --samples 10 --interval-ms 200
-python chktimestat.py --threshold-ns 100000000
-python chktimestat.py --assume-realtime-ptp
+python chktimestat.py \
+  --serials 05520125,05520126,05520128,05520129 \
+  --threshold-ns 3000000 \
+  --samples 1 \
+  --interval-ms 0 \
+  --timeout-s 60
 ```
 
-## Options
+### Arguments
 
-* `--serials`  Comma-separated camera serials (default: `05520125,05520126,05520128,05520129`)
-* `--iface`  Network interface name for logging only (default: `enp3s0`)
-* `--samples`  Number of iterations (default: `1`)
-* `--interval-ms`  Interval between samples in ms (default: `0`)
-* `--threshold-ns`  Absolute delta threshold in ns vs. median (default: `100000000` = 100 ms)
-* `--timeout-s`  Overall timeout in seconds (default: `60`)
-* `--assume-realtime-ptp`  Also print camera delta vs. `time.time_ns()` as a reference
+* `--serials`
+  Comma-separated camera serials to check (default: `05520125,05520126,05520128,05520129`).
+* `--threshold-ns`
+  Absolute pass/fail threshold **vs host reference** in **nanoseconds** (default: `3_000_000` = 3 ms).
+* `--samples`
+  Number of measurement iterations (default: `1`). If `>1`, stats are printed.
+* `--interval-ms`
+  Interval between samples (default: `0`).
+* `--timeout-s`
+  Overall timeout for the run (default: `60`).
+* `--assume-realtime-ptp`
+  Also prints a raw delta vs `time.time_ns()` (debug aid). Does not affect verdicts.
+* `--iface`
+  Network interface name (for logging only).
 
 ## Example output
 
 ```
 [Sample 1]
 Ubuntu(host) PTP: role=Grandmaster, gmClockID=bcfce7.fffe.244daf
-serial=05520125, camera_time_ns=1759801914897358848, delta_to_median_ms=-1.631232, verdict=OK
-serial=05520126, camera_time_ns=...,                  delta_to_median_ms=-0.638208, verdict=OK
-serial=05520128, camera_time_ns=...,                  delta_to_median_ms= 0.638208, verdict=OK
-serial=05520129, camera_time_ns=...,                  delta_to_median_ms= 1.601536, verdict=OK
+serial=05520125, camera_time_ns=1759801914897358848, delta_to_gm_ms=-1.631232, verdict=OK
+serial=05520126, camera_time_ns=1759801914898351872, delta_to_gm_ms=-0.638208, verdict=OK
+serial=05520128, camera_time_ns=1759801914899628288, delta_to_gm_ms=0.638208, verdict=OK
+serial=05520129, camera_time_ns=1759801914900591616, delta_to_gm_ms=1.601536, verdict=OK
 ```
 
-With multiple samples, a stats section is appended:
+If `--samples > 1`, a statistics section (in ns) follows:
 
 ```
 === Statistics ===
-serial=05520125, mean_delta_ns=-1200000, stddev_ns=300000, max_abs_delta_ns=1800000, verdict=OK
+serial=05520125, mean_delta_ns=..., stddev_ns=..., max_abs_delta_ns=..., verdict=OK
 ...
-Max_abs_delta_ns=1900000
+Max_abs_delta_ns=...
 ```
 
 ## Exit codes
 
-* `0` all cameras within threshold
-* `2` one or more cameras exceed threshold
-* `1` fatal error (e.g., `pmc`/IC4 failure)
+* `0` — All cameras within threshold across all samples.
+* `2` — One or more cameras exceeded the threshold.
+* `1` — Fatal error (e.g., `pmc` not found, host not GM, device open/latch/read failure).
+
+## How it works (brief)
+
+1. Confirms host is GM using `pmc GET CURRENT_DATA_SET` (`stepsRemoved == 0`).
+2. For each sample:
+
+   * Take `host_ref_before = time.time_ns()`.
+   * Trigger `TIMESTAMP_LATCH` on **all cameras first**.
+   * Take `host_ref_after = time.time_ns()`.
+   * Reference `host_ref = (before + after) // 2` to approximate the GM time at latch.
+   * Read each camera’s `TIMESTAMP_LATCH_VALUE` (ns), compute `delta = cam - host_ref`.
+   * Display `delta_to_gm_ms` and verdict (±threshold).
+
+This midpoint approach reduces bracketing delay error while avoiding a PHC dependency.
 
 ## Troubleshooting
 
-* `pmc command not found`
-  Install `linuxptp` and ensure `/usr/sbin/pmc` or `pmc` in `PATH`.
-* `Unable to determine stepsRemoved`
-  `ptp4l` not running or `pmc` not connected to `/var/run/ptp4l`.
-* `TIMESTAMP_LATCH_VALUE unavailable`
-  Camera property unsupported or access failed; verify IC4 support and connection.
-* Large deltas
-  Check PTP domain, network path, switch PTP transparency, and that host is truly GM.
+* `ERROR: pmc CURRENT_DATA_SET failed` / `Unable to determine stepsRemoved`
+  Ensure `pmc` exists, `ptp4l` is running, and the host is actually GM on the PTP domain in use.
+* `Camera with serial ... not found`
+  Check cabling and that the camera is visible in `ic4.DeviceEnum.devices()`.
+* `TIMESTAMP_LATCH`/`TIMESTAMP_LATCH_VALUE` errors
+  Confirm the camera supports GenICam timestamp latch and that PTP is enabled on the device.
 
-## Notes
+## Notes & limits
 
-* Displayed deltas are in milliseconds; internal calculations remain in nanoseconds.
-* Latching is done “all cameras first, then read” to minimize skew.
-
+* Displayed deltas are in **ms**, internal thresholds and stats use **ns**.
+* The GM reference is the host’s realtime clock midpoint around the latch. If your host clock is not disciplined to PTP or is unstable, measured deltas may reflect that.

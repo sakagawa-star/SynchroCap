@@ -11,7 +11,6 @@ import sys
 import time
 from dataclasses import dataclass
 from itertools import count
-from statistics import median
 from typing import Dict, Iterable, List
 
 import imagingcontrol4 as ic4
@@ -45,8 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--threshold-ns",
         type=int,
-        default=100_000_000,
-        help="Absolute delta threshold against median in ns",
+        default=3_000_000,
+        help="Absolute delta threshold against host time in ns (default: 3_000_000)",
     )
     parser.add_argument(
         "--samples",
@@ -279,7 +278,8 @@ def run_check(args: argparse.Namespace) -> CheckResult:
                 f"Ubuntu(host) PTP: role={sample_gm.role}, gmClockID={sample_gm.clock_id or 'unknown'}"
             )
 
-            # Stage A: trigger latch for all cameras first.
+            host_ref_before_ns = time.time_ns()
+
             for ctx in contexts:
                 if time.monotonic() > deadline:
                     raise CheckError("Overall timeout exceeded")
@@ -289,7 +289,9 @@ def run_check(args: argparse.Namespace) -> CheckResult:
                 except CheckError as exc:
                     raise CheckError(f"Failed to trigger TIMESTAMP_LATCH for serial {ctx['serial']}: {exc}")
 
-            # Stage B: read latched values.
+            host_ref_after_ns = time.time_ns()
+            host_ref_ns = (host_ref_before_ns + host_ref_after_ns) // 2
+
             camera_times = []
             for ctx in contexts:
                 if time.monotonic() > deadline:
@@ -299,11 +301,10 @@ def run_check(args: argparse.Namespace) -> CheckResult:
                 camera_time_ns = read_latched_timestamp_ns(grabber, serial)
                 camera_times.append((serial, camera_time_ns))
 
-            median_ns = int(median(val for _, val in camera_times))
             ref_time_ns = time.time_ns() if args.assume_realtime_ptp else None
 
             for serial, camera_time_ns in camera_times:
-                delta_ns = camera_time_ns - median_ns
+                delta_ns = camera_time_ns - host_ref_ns
                 all_deltas[serial].append(delta_ns)
                 verdict = "OK" if abs(delta_ns) <= threshold else "NG"
                 if verdict == "NG":
@@ -311,7 +312,7 @@ def run_check(args: argparse.Namespace) -> CheckResult:
                 delta_ms = delta_ns / 1_000_000.0
                 line = (
                     f"serial={serial}, camera_time_ns={camera_time_ns}, "
-                    f"delta_to_median_ms={delta_ms:.6f}, verdict={verdict}"
+                    f"delta_to_gm_ms={delta_ms:.6f}, verdict={verdict}"
                 )
                 if ref_time_ns is not None:
                     ref_delta = camera_time_ns - ref_time_ns
