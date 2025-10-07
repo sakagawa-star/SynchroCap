@@ -202,3 +202,108 @@ This midpoint approach reduces bracketing delay error while avoiding a PHC depen
 
 * Displayed deltas are in **ms**, internal thresholds and stats use **ns**.
 * The GM reference is the host’s realtime clock midpoint around the latch. If your host clock is not disciplined to PTP or is unstable, measured deltas may reflect that.
+
+
+##################################
+# `s04_rec4cams.py` — Record 4 network cameras in sync (IC4 + FFmpeg/NVENC)
+
+Multi-camera recorder that opens four The Imaging Source cameras via **IC Imaging Control 4 (IC4)**, schedules a common start time on each device, and writes each stream to an **H.265/HEVC** MP4 using **FFmpeg** (NVENC). Designed for PTP-synchronized cameras so capture start aligns closely across devices.
+
+## What it does
+
+* Finds cameras by **serial** (`SERIAL_NUMBERS` list).
+* Configures each camera for:
+
+  * `1920x1080`, `BayerGR8`, frame rate from `FRAME_RATE` (default **50.0 fps**).
+  * Hardware action trigger:
+
+    * Latches the camera’s device time (`TIMESTAMP_LATCH` / `TIMESTAMP_LATCH_VALUE`).
+    * Schedules `ACTION_SCHEDULER_TIME = device_time_ns + 10s`.
+    * Sets `ACTION_SCHEDULER_INTERVAL = 20_000 µs` (20 ms → **50 fps**) and commits.
+    * Sets `TRIGGER_SELECTOR=FrameStart`, `TRIGGER_SOURCE=Action0`, `TRIGGER_MODE=On`.
+* Streams frames through an IC4 **QueueSink** and pipes raw Bayer bytes to **FFmpeg**.
+* Encodes each camera to its own MP4 (HEVC/NVENC), file name like:
+
+  ```
+  cam05520125_YYYYMMDD_HHMMSSmmm.mp4
+  ```
+* Runs each camera capture on its own thread for `CAPTURE_DURATION` (default **600 s**).
+* Cleans up robustly (flush/close pipes, stop acquisition/stream, close devices).
+
+> Start-time alignment comes from scheduling the same absolute device time on each camera. With PTP enabled on the cameras and network, the recorded videos begin within a very small temporal skew.
+
+## Requirements
+
+* **Ubuntu** (or Linux) with:
+
+  * The Imaging Source **IC4** Python SDK: `imagingcontrol4`
+  * **FFmpeg** with **NVENC**: `ffmpeg` built with `--enable-nvenc` and a supported NVIDIA GPU/driver
+* Cameras that support GenICam action triggering and timestamp latch.
+
+Install hints:
+
+```bash
+pip install imagingcontrol4
+ffmpeg -encoders | grep nvenc   # verify NVENC is available
+```
+
+## Usage
+
+```bash
+python s04_rec4cams.py
+```
+
+Edit the top of the script to match your setup:
+
+* `SERIAL_NUMBERS`: camera serials to record.
+* `WIDTH, HEIGHT, FRAME_RATE, CAPTURE_DURATION` in `main()`.
+* The FFmpeg settings in `build_ffmpeg_command()` (codec, bitrate, preset).
+
+### Output
+
+One MP4 per camera in the current directory, e.g.:
+
+```
+cam05520125_20250107_142355123.mp4
+cam05520126_20250107_142355123.mp4
+cam05520128_20250107_142355123.mp4
+cam05520129_20250107_142355123.mp4
+```
+
+## FFmpeg pipeline (per camera)
+
+* Input: rawvideo from stdin, `bayer_grbg8`, `1920x1080 @ 50 fps`
+* Filter: `format=yuv420p` (for broad player compatibility)
+* Encoder: `hevc_nvenc` with ~2.2 Mbps target (tweak as needed)
+
+If you don’t have NVENC, change in `build_ffmpeg_command()`:
+
+* `hevc_nvenc` → `libx265` (CPU) or `libx264`
+* Adjust bitrate/preset accordingly.
+
+## Notes & tips
+
+* **PTP**: For best sync, enable PTP on all cameras and ensure they share the same domain. This script doesn’t verify PTP state; it assumes the action schedules refer to aligned device clocks.
+* **Lead time**: Start time is set to **now + 10 seconds (device time)** to give all cameras time to commit the schedule.
+* **Throughput**: Bayer → HEVC is compute-light with NVENC, but disk I/O can still bottleneck. Monitor dropped frames in logs.
+* **Changing FPS**: If you change `FRAME_RATE`, also update `interval_us` in `configure_camera_for_bayer_gr8()`:
+
+  ```
+  interval_us = int(1_000_000 / FRAME_RATE)
+  ```
+* **Pixel format**: Cameras output BayerGR8; FFmpeg converts to YUV420P. If you need lossless raw capture, replace the encoder with a raw file writer (e.g., `.raw` or `.mkv` with `-c:v rawvideo`) and manage size.
+
+## Troubleshooting
+
+* “device not found”: Check serials and camera enumeration via `ic4.DeviceEnum.devices()`.
+* “failed to set …”: Some properties differ by model/firmware. Verify availability in the device’s GenICam nodemap.
+* “ffmpeg stdin was not created” / “ffmpeg terminated unexpectedly”: Ensure FFmpeg is installed and NVENC is supported; try a CPU encoder to isolate.
+* Misaligned start times: Confirm PTP is enabled and stable, and that your network switch supports PTP/IGMP as required by your cameras.
+
+## File layout (key functions)
+
+* `configure_camera_for_bayer_gr8(...)`: Sets resolution/format/FPS and programs the action scheduler and trigger source.
+* `allocate_queue_sink(...)`: Prepares the streaming sink and buffers.
+* `record_raw_frames(...)`: Starts acquisition, pulls frames, writes to FFmpeg stdin for the requested duration.
+* `build_ffmpeg_command(...)`: Encapsulates the FFmpeg arguments.
+* `find_device_by_serial(...)`: Resolves devices by serial.
