@@ -1,4 +1,4 @@
-##################################
+---
 # ptp_sync_check.py
 
 Utility to enable and verify PTP synchronization across 2–8 industrial cameras on Ubuntu.
@@ -84,7 +84,7 @@ If not converged, it prints helpful diagnostics (e.g., multiple Masters, no Mast
   Verify camera properties via IC4 (you can dump available nodes if needed).
 
 
-##################################
+---
 # `chktimestat.py` — Check camera timestamps against Ubuntu (PTP GM)
 
 A small CLI tool to verify time alignment of multiple network cameras against the host PC acting as PTP Grandmaster (GM).
@@ -204,7 +204,7 @@ This midpoint approach reduces bracketing delay error while avoiding a PHC depen
 * The GM reference is the host’s realtime clock midpoint around the latch. If your host clock is not disciplined to PTP or is unstable, measured deltas may reflect that.
 
 
-##################################
+---
 # `s04_rec4cams.py` — Record 4 network cameras in sync (IC4 + FFmpeg/NVENC)
 
 Multi-camera recorder that opens four The Imaging Source cameras via **IC Imaging Control 4 (IC4)**, schedules a common start time on each device, and writes each stream to an **H.265/HEVC** MP4 using **FFmpeg** (NVENC). Designed for PTP-synchronized cameras so capture start aligns closely across devices.
