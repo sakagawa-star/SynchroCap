@@ -1,4 +1,3 @@
----
 # ptp_sync_check.py
 
 Utility to enable and verify PTP synchronization across 2–8 industrial cameras on Ubuntu.
