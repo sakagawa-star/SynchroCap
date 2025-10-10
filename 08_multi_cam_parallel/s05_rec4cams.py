@@ -73,7 +73,7 @@ def configure_camera_for_bayer_gr8(
         device_time_ns = time.time_ns()
 
     start_time_ns = device_time_ns + 10_000_000_000
-    interval_us = 20_000
+    interval_us = int(1_000_000 / max(fps, 1e-6))
 
     try:
         dmap.try_set_value(ic4.PropId.ACTION_SCHEDULER_CANCEL, True)
@@ -230,7 +230,7 @@ def build_ffmpeg_command(width: int, height: int, frame_rate: float, output_file
 def main() -> None:
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 50.0
-    CAPTURE_DURATION = 600.0
+    CAPTURE_DURATION = 10.0
 
     ic4.Library.init()
     camera_contexts: Dict[str, Dict[str, object]] = {}
