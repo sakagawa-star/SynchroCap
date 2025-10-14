@@ -1,0 +1,10 @@
+imagingcontrol4==1.3.0.3125
+imagingcontrol4pyside6==6.8.0.102
+numpy==2.2.6
+pip @ file:///home/conda/feedstock_root/build_artifacts/pip_1753924886980/work
+PySide6==6.8.3
+PySide6_Addons==6.8.3
+PySide6_Essentials==6.8.3
+setuptools==80.9.0
+shiboken6==6.8.3
+wheel==0.45.1

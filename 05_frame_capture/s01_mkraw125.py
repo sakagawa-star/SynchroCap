@@ -177,7 +177,7 @@ def main() -> None:
     SERIAL_NUMBER = "05520125"
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
-    CAPTURE_DURATION = 600.0  # seconds
+    CAPTURE_DURATION = 10.0  # seconds
     OUTPUT_FILENAME = "input.raw"
 
     # Initialize the library.  This call must precede any other IC4
