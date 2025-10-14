@@ -204,105 +204,489 @@ This midpoint approach reduces bracketing delay error while avoiding a PHC depen
 
 
 ---
-# `s04_rec4cams.py` — Record 4 network cameras in sync (IC4 + FFmpeg/NVENC)
+# s06_rec4cams — Multi-camera BayerGR8 Recorder (PTP-synchronized)
 
-Multi-camera recorder that opens four The Imaging Source cameras via **IC Imaging Control 4 (IC4)**, schedules a common start time on each device, and writes each stream to an **H.265/HEVC** MP4 using **FFmpeg** (NVENC). Designed for PTP-synchronized cameras so capture start aligns closely across devices.
+Record synchronized raw BayerGR8 frames from multiple industrial cameras using The Imaging Source **imagingcontrol4** (IC4).
+Two output modes:
 
-## What it does
+* **HEVC (default):** stream raw frames into `ffmpeg` (NVENC) and save `.mp4`.
+* **RAW mode (`--raw-output`):** write a concatenated raw byte stream (`.raw`) per camera (no compression, no loss).
 
-* Finds cameras by **serial** (`SERIAL_NUMBERS` list).
-* Configures each camera for:
+The program latches device timestamps, verifies PTP offsets, schedules a common start, and records for a fixed duration per run.
 
-  * `1920x1080`, `BayerGR8`, frame rate from `FRAME_RATE` (default **50.0 fps**).
-  * Hardware action trigger:
-
-    * Latches the camera’s device time (`TIMESTAMP_LATCH` / `TIMESTAMP_LATCH_VALUE`).
-    * Schedules `ACTION_SCHEDULER_TIME = device_time_ns + 10s`.
-    * Sets `ACTION_SCHEDULER_INTERVAL = 20_000 µs` (20 ms → **50 fps**) and commits.
-    * Sets `TRIGGER_SELECTOR=FrameStart`, `TRIGGER_SOURCE=Action0`, `TRIGGER_MODE=On`.
-* Streams frames through an IC4 **QueueSink** and pipes raw Bayer bytes to **FFmpeg**.
-* Encodes each camera to its own MP4 (HEVC/NVENC), file name like:
-
-  ```
-  cam05520125_YYYYMMDD_HHMMSSmmm.mp4
-  ```
-* Runs each camera capture on its own thread for `CAPTURE_DURATION` (default **600 s**).
-* Cleans up robustly (flush/close pipes, stop acquisition/stream, close devices).
-
-> Start-time alignment comes from scheduling the same absolute device time on each camera. With PTP enabled on the cameras and network, the recorded videos begin within a very small temporal skew.
+---
 
 ## Requirements
 
-* **Ubuntu** (or Linux) with:
+* **OS & Python**
 
-  * The Imaging Source **IC4** Python SDK: `imagingcontrol4`
-  * **FFmpeg** with **NVENC**: `ffmpeg` built with `--enable-nvenc` and a supported NVIDIA GPU/driver
-* Cameras that support GenICam action triggering and timestamp latch.
+  * Linux recommended (tested with `pmc`/`ptp4l` tools available).
+  * Python 3.9+.
+* **IC4 SDK**
 
-Install hints:
+  * `imagingcontrol4` Python package installed and licensed.
+* **Cameras**
+
+  * Cameras that support GenICam/GenTL and BayerGR8, with action/trigger support.
+* **FFmpeg (HEVC mode only)**
+
+  * `ffmpeg` with **NVENC** (`hevc_nvenc`) available on the system.
+* **PTP requirement (Grand Master)**
+
+  * A **PTP Grand Master** must be present on the capture network.
+
+    * EITHER this PC acts as GM (e.g., run `ptp4l` in GM mode on the capture NIC)
+    * OR an external GM (PTP-capable switch/clock) is present.
+  * Ensure all cameras report **`Slave`** before capture. Quick sanity check:
+
+    ```bash
+    pmc -u -b 0 -d 0 'GET CURRENT_DATA_SET'
+    # Expect stepsRemoved close to 0 and each camera’s status = Slave
+    ```
+
+---
+
+## Installation
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install imagingcontrol4
-ffmpeg -encoders | grep nvenc   # verify NVENC is available
+# ffmpeg must be installed system-wide if you use HEVC mode
 ```
+
+---
 
 ## Usage
 
 ```bash
-python s04_rec4cams.py
+python s06_rec4cams.py [--start-delay-s SECONDS] [--offset-threshold-ms MS] [--raw-output]
 ```
 
-Edit the top of the script to match your setup:
+**Common options**
 
-* `SERIAL_NUMBERS`: camera serials to record.
-* `WIDTH, HEIGHT, FRAME_RATE, CAPTURE_DURATION` in `main()`.
-* The FFmpeg settings in `build_ffmpeg_command()` (codec, bitrate, preset).
+* `--start-delay-s` (default: `10.0`)
+  Delay from scheduling to the first frame trigger.
+* `--offset-threshold-ms` (default: `3.0`)
+  Allowed PTP master–camera offset at scheduling time.
+* `--raw-output`
+  If set, writes raw BayerGR8 stream (`.raw`) per camera and **does not** start `ffmpeg`.
 
-### Output
+### Examples
 
-One MP4 per camera in the current directory, e.g.:
+**HEVC (default):**
 
+```bash
+python s06_rec4cams.py --start-delay-s 8 --offset-threshold-ms 2
+# Outputs: cam<serial>_YYYYMMDD_HHMMSSmmm.mp4 per camera
 ```
-cam05520125_20250107_142355123.mp4
-cam05520126_20250107_142355123.mp4
-cam05520128_20250107_142355123.mp4
-cam05520129_20250107_142355123.mp4
+
+**RAW mode:**
+
+```bash
+python s06_rec4cams.py --raw-output --start-delay-s 8
+# Outputs: cam<serial>_YYYYMMDD_HHMMSSmmm.raw per camera
 ```
 
-## FFmpeg pipeline (per camera)
+At startup the tool:
 
-* Input: rawvideo from stdin, `bayer_grbg8`, `1920x1080 @ 50 fps`
-* Filter: `format=yuv420p` (for broad player compatibility)
-* Encoder: `hevc_nvenc` with ~2.2 Mbps target (tweak as needed)
+1. Runs a PTP pre-check (`pmc … GET CURRENT_DATA_SET`).
+2. Waits until all cameras report **Slave**.
+3. Latches timestamps on the cameras, calculates offsets vs host, enforces threshold.
+4. Schedules a common start time across cameras.
+5. Streams frames to either `ffmpeg` (HEVC) **or** a `.raw` file (RAW mode).
 
-If you don’t have NVENC, change in `build_ffmpeg_command()`:
+---
 
-* `hevc_nvenc` → `libx265` (CPU) or `libx264`
-* Adjust bitrate/preset accordingly.
+## Output formats
 
-## Notes & tips
+### `.mp4` (HEVC/NVENC)
 
-* **PTP**: For best sync, enable PTP on all cameras and ensure they share the same domain. This script doesn’t verify PTP state; it assumes the action schedules refer to aligned device clocks.
-* **Lead time**: Start time is set to **now + 10 seconds (device time)** to give all cameras time to commit the schedule.
-* **Throughput**: Bayer → HEVC is compute-light with NVENC, but disk I/O can still bottleneck. Monitor dropped frames in logs.
-* **Changing FPS**: If you change `FRAME_RATE`, also update `interval_us` in `configure_camera_for_bayer_gr8()`:
+* YUV420p, target ~2.2 Mbps per stream (configurable in code).
+* One file per camera per run.
+
+### `.raw` (BayerGR8)
+
+* **Concatenated frames**: width × height bytes per frame; no headers.
+* Order: sequential frames for the full duration.
+* Example size estimate (warning is printed when `--raw-output` is used):
 
   ```
-  interval_us = int(1_000_000 / FRAME_RATE)
+  1920×1080×1 byte × 50 fps × 10 s ≈ 0.99 GiB per camera
   ```
-* **Pixel format**: Cameras output BayerGR8; FFmpeg converts to YUV420P. If you need lossless raw capture, replace the encoder with a raw file writer (e.g., `.raw` or `.mkv` with `-c:v rawvideo`) and manage size.
+
+---
+
+## Working with RAW files
+
+### Encode a `.raw` file to MP4 (same pipeline as live HEVC mode)
+
+```bash
+WIDTH=1920
+HEIGHT=1080
+FPS=50
+INPUT=cam05520129_YYYYMMDD_HHMMSSmmm.raw
+OUTPUT=cam05520129_YYYYMMDD_HHMMSSmmm.mp4
+
+ffmpeg -hide_banner -nostats -loglevel error \
+  -f rawvideo -pix_fmt bayer_grbg8 -s ${WIDTH}x${HEIGHT} -framerate ${FPS} \
+  -i "${INPUT}" \
+  -vf format=yuv420p \
+  -c:v hevc_nvenc -b:v 2200k -maxrate 2200k -bufsize 4400k -preset p4 \
+  "${OUTPUT}"
+```
+
+> This reproduces the same options used when streaming to ffmpeg during live capture.
+
+### View RAW without loss (no “codec” to detect)
+
+Bayer `.raw` is not directly playable; it needs **demosaicing** and a pixel format.
+Two convenient options:
+
+1. **Quick preview using ffplay with software demosaic** (no compression):
+
+   ```bash
+   ffplay -hide_banner -loglevel error \
+     -f rawvideo -pix_fmt bayer_grbg8 -s ${WIDTH}x${HEIGHT} -framerate ${FPS} \
+     -i "${INPUT}" \
+     -vf "format=rgb24,demosaic=mode=bilinear"
+   ```
+
+   * Replace `bilinear` with `malvar`/`vng` if your ffmpeg build supports those.
+
+2. **Convert losslessly to a playable RGB AVI:**
+
+   ```bash
+   ffmpeg -hide_banner -loglevel error \
+     -f rawvideo -pix_fmt bayer_grbg8 -s ${WIDTH}x${HEIGHT} -framerate ${FPS} \
+     -i "${INPUT}" \
+     -vf "format=rgb24,demosaic=mode=bilinear" \
+     -c:v ffv1 -level 3 -g 1 "${INPUT%.raw}_rgb_ffv1.avi"
+   ```
+
+   * `ffv1` is mathematically lossless; file size will be large but VLC will play it.
+
+> VLC cannot “identify a codec” for raw Bayer because it’s not a containerized, self-describing format. Use `ffplay` or convert first.
+
+---
+
+## Logs & behavior
+
+* PTP pre-check logs `stepsRemoved` and warns if parsing fails.
+* Blocks until all cameras report `Slave`, otherwise exits with code `2`.
+* During scheduling, logs each camera’s offset vs host and enforces `--offset-threshold-ms`.
+* In RAW mode, prints a **storage estimate** before recording.
+* Cleanup ensures writer handles are flushed/closed even on early termination.
+
+---
+
+## Configuration points in code
+
+* **Camera list:** `SERIAL_NUMBERS` array.
+* **Frame size/rate/duration:** in `main()` (`WIDTH/HEIGHT/FRAME_RATE/CAPTURE_DURATION`).
+* **FFmpeg encoding parameters:** `build_ffmpeg_command()`.
+
+---
 
 ## Troubleshooting
 
-* “device not found”: Check serials and camera enumeration via `ic4.DeviceEnum.devices()`.
-* “failed to set …”: Some properties differ by model/firmware. Verify availability in the device’s GenICam nodemap.
-* “ffmpeg stdin was not created” / “ffmpeg terminated unexpectedly”: Ensure FFmpeg is installed and NVENC is supported; try a CPU encoder to isolate.
-* Misaligned start times: Confirm PTP is enabled and stable, and that your network switch supports PTP/IGMP as required by your cameras.
+* **Cameras won’t reach Slave:**
 
-## File layout (key functions)
+  * Verify GM is active; check NIC, PTP profile, and that `ptp4l`/switch allow two-step/one-step as needed.
+  * `pmc -u -b 0 -d 0 'GET CURRENT_DATA_SET'` and inspect `stepsRemoved` and port states.
+* **NVENC not available:**
 
-* `configure_camera_for_bayer_gr8(...)`: Sets resolution/format/FPS and programs the action scheduler and trigger source.
-* `allocate_queue_sink(...)`: Prepares the streaming sink and buffers.
-* `record_raw_frames(...)`: Starts acquisition, pulls frames, writes to FFmpeg stdin for the requested duration.
-* `build_ffmpeg_command(...)`: Encapsulates the FFmpeg arguments.
-* `find_device_by_serial(...)`: Resolves devices by serial.
+  * Switch to software HEVC (`-c:v libx265`) or H.264 (`-c:v libx264`) in `build_ffmpeg_command`.
+* **RAW playback shows “codec not identified”:**
+
+  * Use `ffplay` with `-f rawvideo -pix_fmt bayer_grbg8 -s WxH` and add a `demosaic` filter, or convert as shown above.
+
+---
+
+## License
+
+Project licensing follows the terms you apply to this repository. IC4 and camera SDKs follow their respective licenses.
+
+---
+# linuxptp (ptp4l / phc2sys / pmc) — Quick README
+
+> Your app talks to `pmc` at **`/var/run/ptp4l`**. Make sure `ptp4l` creates its Unix socket there (use `-s /var/run/ptp4l` or the systemd unit below).
+
+## Goal & Prereqs
+
+* Make the PC a **PTP Grand Master (GM)** (or a Slave to an external GM) so cameras converge to **Slave**.
+* NIC must support **hardware timestamping** (`ethtool -T <iface>`).
+* Install `linuxptp` (`ptp4l`, `phc2sys`, `pmc`) and `ethtool`.
+
+## Install
+
+```bash
+sudo apt-get update
+sudo apt-get install -y linuxptp ethtool
+ip link                     # find NIC (e.g., enp3s0)
+ethtool -T enp3s0           # confirm HW timestamping
+```
+
+## Quick test (PC as GM)
+
+Terminal 1 — `ptp4l` (GM), UDPv4/E2E/2step, socket at `/var/run/ptp4l`:
+
+```bash
+sudo ptp4l -i enp3s0 -f /dev/stdin -2 -m -s /var/run/ptp4l <<'EOF'
+[global]
+time_stamping=hardware
+network_transport=UDPv4
+delay_mechanism=E2E
+twoStepFlag=1
+defaultDS.domainNumber=0
+gmCapable=1
+priority1=10
+slaveOnly=0
+[enp3s0]
+logAnnounceInterval=1
+logSyncInterval=-3
+logMinDelayReqInterval=0
+EOF
+```
+
+Terminal 2 — **sync PHC → system clock** (recommended; keep system time aligned with NIC PHC):
+
+```bash
+sudo phc2sys -s enp3s0 -c CLOCK_REALTIME -O 0 -w
+```
+
+Terminal 3 — check state with `pmc` (same socket path as your app):
+
+```bash
+pmc -u -s /var/run/ptp4l 'GET CURRENT_DATA_SET'
+pmc -u -s /var/run/ptp4l 'GET PORT_DATA_SET'
+# Expect GM PC: stepsRemoved = 0
+```
+
+## Permissions (first time setup)
+
+Create a `ptp` group and udev rule for `/dev/ptp*`:
+
+```bash
+sudo groupadd -f ptp
+echo 'KERNEL=="ptp*", GROUP="ptp", MODE="0660"' | sudo tee /etc/udev/rules.d/90-ptp.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+sudo usermod -aG ptp $USER   # re-login afterwards
+```
+
+## systemd (recommended for production)
+
+`/etc/systemd/system/ptp4l.service`:
+
+```ini
+[Unit]
+Description=linuxptp ptp4l
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=ptp
+RuntimeDirectory=ptp4l
+RuntimeDirectoryMode=0775
+ExecStart=/usr/sbin/ptp4l -f /etc/linuxptp/ptp4l-gm.conf -i enp3s0 -2 -m -s /var/run/ptp4l
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/linuxptp/ptp4l-gm.conf` (GM):
+
+```ini
+[global]
+time_stamping=hardware
+network_transport=UDPv4
+delay_mechanism=E2E
+twoStepFlag=1
+defaultDS.domainNumber=0
+gmCapable=1
+priority1=10
+slaveOnly=0
+[enp3s0]
+logAnnounceInterval=1
+logSyncInterval=-3
+logMinDelayReqInterval=0
+```
+
+`/etc/systemd/system/phc2sys.service`:
+
+```ini
+[Unit]
+Description=linuxptp phc2sys
+After=ptp4l.service
+Requires=ptp4l.service
+
+[Service]
+Type=simple
+User=root
+Group=ptp
+ExecStart=/usr/sbin/phc2sys -s enp3s0 -c CLOCK_REALTIME -O 0 -w
+CapabilityBoundingSet=CAP_SYS_TIME
+AmbientCapabilities=CAP_SYS_TIME
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ptp4l phc2sys
+```
+
+Optional capabilities (if you run without full root):
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin+ep /usr/sbin/ptp4l
+sudo setcap cap_sys_time+ep              /usr/sbin/phc2sys
+```
+
+## pmc cheatsheet (use the same socket path)
+
+```bash
+pmc -u -s /var/run/ptp4l 'GET CURRENT_DATA_SET'       # GM/Slave, stepsRemoved, etc.
+pmc -u -s /var/run/ptp4l 'GET PORT_DATA_SET'          # per-port state
+pmc -u -s /var/run/ptp4l 'GET TIME_PROPERTIES_DATA_SET'
+pmc -u -s /var/run/ptp4l 'GET DEFAULT_DATA_SET'
+```
+
+## Troubleshooting (quick)
+
+* **`pmc: connect: Permission denied`** → Ensure `ptp4l` runs with `Group=ptp`, `RuntimeDirectoryMode=0775`, user in `ptp` group.
+* **No `/dev/ptp*` or HW TS unsupported** → Check `ethtool -T`, apply udev rule, re-login.
+* **Cameras don’t go Slave** → Check `domainNumber`, remove extra GMs, test minimal topology.
+* **PC GM but `stepsRemoved != 0`** → Wrong config (not GM); use the GM conf above.
+* **System vs PHC drift** → Ensure **one direction** with `phc2sys` (PHC→System as shown), don’t run both directions.
+---
+了解しました ✅
+以下は、内容を簡潔にまとめた **英語版 README.md** です。
+Ubuntu 24.04 + RTX 5060 Ti + CUDA 13 環境向けで、誰が読んでもすぐ再現できる形です。
+
+---
+
+````markdown
+# Build FFmpeg with NVIDIA GPU (NVENC/NVDEC) Support on Ubuntu 24.04
+
+## Overview
+This guide explains how to compile **FFmpeg** with **CUDA / NVENC / NVDEC** support  
+for NVIDIA GPUs (tested on RTX 5060 Ti, driver 580.65.06, CUDA 13.0).
+
+---
+
+## 1. Install Dependencies
+```bash
+sudo apt update
+sudo apt install -y build-essential yasm cmake libtool \
+  libc6-dev unzip wget libnuma-dev nasm pkg-config \
+  libx264-dev libx265-dev libvpx-dev libfdk-aac-dev \
+  libmp3lame-dev libopus-dev libsdl2-dev
+````
+
+---
+
+## 2. Install NVENC Headers
+
+```bash
+cd ~/git
+git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
+cd nv-codec-headers
+make
+sudo make install
+cd ..
+```
+
+---
+
+## 3. Get FFmpeg Source
+
+```bash
+cd ~/git
+git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg
+cd ffmpeg
+```
+
+---
+
+## 4. Configure
+
+```bash
+./configure \
+  --enable-nonfree \
+  --enable-cuda-nvcc \
+  --enable-libnpp \
+  --extra-cflags=-I/usr/local/cuda/include \
+  --extra-ldflags=-L/usr/local/cuda/lib64 \
+  --disable-static \
+  --enable-shared \
+  --enable-ffplay
+```
+
+---
+
+## 5. Build and Install
+
+```bash
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+```
+
+---
+
+## 6. Verify NVENC Support
+
+```bash
+ffmpeg -encoders | grep nvenc
+```
+
+You should see:
+
+```
+h264_nvenc
+hevc_nvenc
+av1_nvenc
+```
+
+---
+
+## 7. GPU Encoding Example
+
+```bash
+ffmpeg -hwaccel cuda -i input.mp4 \
+  -c:v h264_nvenc -preset fast -b:v 5M output.mp4
+```
+
+---
+
+## 8. Play with GPU Acceleration (optional)
+
+```bash
+ffplay -hwaccel cuda output.mp4
+```
+
+---
+
+### Notes
+
+* `--enable-nonfree` is required due to NVIDIA SDK license.
+* `--enable-libnpp` enables CUDA image processing.
+* `libsdl2-dev` is required to build **ffplay**.
+* Redistribution of this build is **not allowed**.
+
+---
+
+✅ **Done!**
+FFmpeg with full NVIDIA GPU acceleration is now ready.
+---
+
