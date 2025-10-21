@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import count
 from typing import BinaryIO, Dict, Iterable, List, Optional
 import gc
@@ -93,7 +93,7 @@ def _ptp_precheck() -> None:
         return
     steps = int(m.group(1))
     if steps == 0:
-        print("[PTP] OK: stepsRemoved=0")
+        print("[PTP] OK: stepsRemoved=0", file=sys.stderr)
     else:
         sys.stderr.write(f"[PTP] Warning: stepsRemoved={steps} (PTP may not be converged)\n")
 
@@ -154,7 +154,7 @@ def _wait_for_cameras_slave(camera_contexts: Dict[str, Dict[str, object]]) -> No
             else:
                 other_count += 1
         if slave_count == total:
-            print("[PTP] OK: all cameras report Slave status")
+            print("[PTP] OK: all cameras report Slave status", file=sys.stderr)
             return
         if time.monotonic() >= deadline:
             sys.stderr.write(
@@ -222,7 +222,8 @@ def _check_offsets_and_schedule(
         delta_ms = delta_ns / 1_000_000.0
         print(
             f"serial={serial}, host_ref_ns={host_ref_ns}, camera_time_ns={camera_time_ns}, "
-            f"delta_ns={delta_ns}, verdict={verdict}"
+            f"delta_ns={delta_ns}, verdict={verdict}",
+            file=sys.stderr,
         )
         if verdict == "NG":
             violations.append((serial, delta_ms))
@@ -266,7 +267,9 @@ def _check_offsets_and_schedule(
 
     for serial, delta_ns in deltas.items():
         delta_ms = delta_ns / 1_000_000.0
-        print(f"[PTP] serial={serial}, delta_to_master_ms={delta_ms:+.3f}")
+        print(f"[PTP] serial={serial}, delta_to_master_ms={delta_ms:+.3f}", file=sys.stderr)
+
+    return host_target_ns
 
 
 
@@ -307,7 +310,7 @@ def configure_camera_for_bayer_gr8(
         device_time_ns = time.time_ns()
 
     start_time_ns = device_time_ns + 10_000_000_000
-    interval_us = int(1_000_000 / max(fps, 1e-6))
+    interval_us = round(1_000_000 / fps)
 
     try:
         dmap.try_set_value(ic4.PropId.ACTION_SCHEDULER_CANCEL, True)
@@ -372,16 +375,16 @@ def record_raw_frames(
     duration_sec: float,
     output_stream: Optional[BinaryIO],
     ffmpeg_proc: Optional[subprocess.Popen[bytes]],
-) -> None:
+) -> int:
     if output_stream is None:
         log_warning(serial, "output stdin is unavailable; skipping capture")
-        return
+        return 0
 
     try:
         grabber.acquisition_start()
     except ic4.IC4Exception as e:
         log_warning(serial, "failed to start acquisition", e)
-        return
+        return 0
 
     end_time = datetime.now() + timedelta(seconds=duration_sec)
     frame_count = 0
@@ -420,6 +423,7 @@ def record_raw_frames(
         grabber.stream_stop()
     except ic4.IC4Exception as e:
         log_warning(serial, "failed to stop stream", e)
+    return frame_count
 
 
 def make_output_filename(serial: str) -> str:
@@ -497,16 +501,39 @@ def main() -> None:
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
     CAPTURE_DURATION = 60.0
+    EXPECTED_FRAMES = int(round(CAPTURE_DURATION * FRAME_RATE))
 
     ic4.Library.init()
     _ptp_precheck()
     camera_contexts: Dict[str, Dict[str, object]] = {}
     threads: Dict[str, threading.Thread] = {}
+    result_map: Dict[str, int] = {}
+    serial_order: List[str] = []
+    capture_start_time: Optional[float] = None
     ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
     grabber: Optional[ic4.Grabber] = None
     sink: Optional[ic4.QueueSink] = None
     listener: Optional[_RawQueueSinkListener] = None
     device_info: Optional[ic4.DeviceInfo] = None
+
+    def _worker(
+        serial: str,
+        grabber: ic4.Grabber,
+        sink: ic4.QueueSink,
+        duration_sec: float,
+        output_stream: Optional[BinaryIO],
+        ffmpeg_proc: Optional[subprocess.Popen[bytes]],
+        results: Dict[str, int],
+    ) -> None:
+        try:
+            count = record_raw_frames(
+                serial, grabber, sink, duration_sec, output_stream, ffmpeg_proc
+            )
+        except Exception as exc:
+            log_warning(serial, "record_raw_frames raised exception", exc)
+            count = 0
+        results[serial] = count
+        print(f"[{serial}] frames={count}", file=sys.stderr)
 
     try:
         # Set up each camera and its encoder.
@@ -539,7 +566,7 @@ def main() -> None:
                     except ic4.IC4Exception as close_exc:
                         log_warning(serial, "failed to close device after raw open failure", close_exc)
                     continue
-                print(f"[RAW] Saving raw stream: {raw_path}")
+                print(f"[RAW] Saving raw stream: {raw_path}", file=sys.stderr)
                 camera_contexts[serial] = {
                     "grabber": grabber,
                     "sink": sink,
@@ -590,10 +617,11 @@ def main() -> None:
             sys.stderr.write("No cameras initialized successfully; exiting.\n")
             return
 
+        serial_order = list(camera_contexts.keys())
+
         if raw_mode:
             bytes_per_frame = WIDTH * HEIGHT
-            frames = int(FRAME_RATE * CAPTURE_DURATION)
-            per_cam_bytes = bytes_per_frame * frames
+            per_cam_bytes = EXPECTED_FRAMES * bytes_per_frame
             total_bytes = per_cam_bytes * len(camera_contexts)
             per_cam_gib = per_cam_bytes / (1024 ** 3)
             total_gib = total_bytes / (1024 ** 3)
@@ -602,8 +630,18 @@ def main() -> None:
             )
 
         _wait_for_cameras_slave(camera_contexts)
-        _check_offsets_and_schedule(camera_contexts, args.start_delay_s, threshold_ms)
+        host_target_ns = _check_offsets_and_schedule(
+            camera_contexts, args.start_delay_s, threshold_ms
+        )
+        ts = host_target_ns / 1_000_000_000
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
+        formatted = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        print(
+            f"[SCHEDULE] Recording will start at (PC clock): {formatted}",
+            file=sys.stderr,
+        )
         # Start capture threads for each camera.
+        capture_start_time = time.monotonic()
         for serial, ctx in camera_contexts.items():
             grabber = ctx["grabber"]  # type: ignore[assignment]
             sink = ctx["sink"]  # type: ignore[assignment]
@@ -616,7 +654,7 @@ def main() -> None:
                 output_stream = ffmpeg_proc.stdin  # type: ignore[assignment]
                 proc_for_thread = ffmpeg_proc
             thread = threading.Thread(
-                target=record_raw_frames,
+                target=_worker,
                 args=(
                     serial,
                     grabber,
@@ -624,6 +662,7 @@ def main() -> None:
                     CAPTURE_DURATION,
                     output_stream,
                     proc_for_thread,
+                    result_map,
                 ),
                 name=f"CaptureThread-{serial}",
             )
@@ -688,6 +727,32 @@ def main() -> None:
             ctx.pop("sink", None)
             ctx.pop("listener", None)
             ctx.pop("device_info", None)
+
+        t1 = time.monotonic()
+        actual_duration = 0.0
+        if capture_start_time is not None:
+            actual_duration = t1 - capture_start_time
+            if actual_duration <= 0:
+                actual_duration = 0.0
+
+        if serial_order:
+            for serial in serial_order:
+                count = result_map.get(serial, 0)
+                print(f"[REPORT] serial={serial} frames={count}", file=sys.stderr)
+            for serial in serial_order:
+                expected = EXPECTED_FRAMES
+                got = result_map.get(serial, 0)
+                delta = got - expected
+                actual_fps = got / actual_duration if actual_duration > 0 else 0.0
+                drift_ms = (delta / FRAME_RATE) * 1000.0
+                print(
+                    f"[REPORT] serial={serial} expected={expected} got={got} delta={delta:+d} "
+                    f"actual_duration={actual_duration:.3f}s actual_fps={actual_fps:.3f} drift_ms={drift_ms:+.3f}",
+                    file=sys.stdout,
+                )
+                threshold = max(2, int(0.001 * expected))
+                if abs(delta) > threshold:
+                    print(f"[{serial}] Warning: frame delta too large: {delta}", file=sys.stderr)
 
         camera_contexts.clear()
         threads.clear()
