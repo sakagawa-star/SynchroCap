@@ -183,7 +183,7 @@ def main() -> None:
     SERIAL_NUMBER = "05520128"
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
-    CAPTURE_DURATION = 600.0  # seconds
+    CAPTURE_DURATION = 60.0  # seconds
 
     timestamp = datetime.now()
     date_part = timestamp.strftime("%Y%m%d")

@@ -177,7 +177,7 @@ def main() -> None:
     SERIAL_NUMBER = "05520126"
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
-    CAPTURE_DURATION = 600.0  # seconds
+    CAPTURE_DURATION = 180.0  # seconds
 
     # Initialize the library.  This call must precede any other IC4
     # operations.  A matching Library.exit() is executed in a finally

@@ -174,7 +174,7 @@ def record_raw_frames(
 def main() -> None:
     """Main entry point for raw frame capture."""
     # Settings for capture.  Adjust these constants as needed.
-    SERIAL_NUMBER = "05520125"
+    SERIAL_NUMBER = "05520128"
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
     CAPTURE_DURATION = 300.0  # seconds
