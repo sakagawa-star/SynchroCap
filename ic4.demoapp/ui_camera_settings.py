@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from typing import List, Optional
+import json
+import os
 import time
+from datetime import datetime, timezone
 from threading import Lock
 
 import imagingcontrol4 as ic4
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QStandardPaths, QDir
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QComboBox,
@@ -30,11 +33,76 @@ from PySide6.QtWidgets import (
 from channel_registry import ChannelEntry, ChannelRegistry
 
 
+class CameraSettingsStore:
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._data: Optional[dict] = None
+
+    def load(self) -> dict:
+        if self._data is not None:
+            return self._data
+        self._data = {}
+        if not os.path.exists(self.path):
+            return self._data
+        try:
+            with open(self.path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                self._data = data
+            else:
+                print("[persist] load failed: root is not an object")
+        except Exception as exc:
+            print(f"[persist] load failed: {exc}")
+        return self._data
+
+    def get(self, serial: str, unique_name: str) -> Optional[dict]:
+        data = self.load()
+        serial_key = (serial or "").strip()
+        if serial_key and serial_key in data:
+            return data[serial_key]
+        unique_key = (unique_name or "").strip()
+        if unique_key and unique_key in data:
+            return data[unique_key]
+        return None
+
+    def update(self, key: str, serial: str, unique_name: str, model: str, updates: dict) -> bool:
+        data = self.load()
+        record = dict(data.get(key, {}))
+        record["serial"] = serial or ""
+        record["unique_name"] = unique_name or ""
+        record["model"] = model or ""
+        record["updated_at"] = self._timestamp_now()
+        record.update(updates)
+        data[key] = record
+        return self._save()
+
+    def _save(self) -> bool:
+        if self._data is None:
+            return False
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path, "w", encoding="utf-8") as handle:
+                json.dump(self._data, handle, ensure_ascii=True, indent=2)
+            return True
+        except Exception as exc:
+            print(f"[persist] save failed: {exc}")
+            return False
+
+    @staticmethod
+    def _timestamp_now() -> str:
+        timestamp = datetime.now(timezone.utc).replace(microsecond=0)
+        return timestamp.isoformat().replace("+00:00", "Z")
+
+
 class CameraSettingsWidget(QWidget):
     def __init__(self, registry: ChannelRegistry, resolver, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.registry = registry
         self.resolver = resolver
+        appdata_directory = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        QDir(appdata_directory).mkpath(".")
+        self._settings_file = os.path.join(appdata_directory, "camera_settings.json")
+        self._settings_store = CameraSettingsStore(self._settings_file)
 
         self.preview_grabber = ic4.Grabber()
         self.display = None
@@ -66,6 +134,38 @@ class CameraSettingsWidget(QWidget):
         self._wb_timer = QTimer(self)
         self._wb_timer.setInterval(1000)
         self._wb_timer.timeout.connect(self._on_wb_timer)
+        self._exposure_prop = None
+        self._exposure_prop_key = None
+        self._exposure_auto_prop = None
+        self._exposure_auto_prop_key = None
+        self._exposure_supported = False
+        self._exposure_auto_supported = False
+        self._exposure_notify_registered = False
+        self._exposure_auto_notify_registered = False
+        self._exposure_auto_polling_fallback = False
+        self._exposure_last_value = None
+        self._exposure_auto_last_value = None
+        self._exposure_display_text = "N/A"
+        self._exposure_auto_display_text = "N/A"
+        self._exposure_timer = QTimer(self)
+        self._exposure_timer.setInterval(1000)
+        self._exposure_timer.timeout.connect(self._on_exposure_timer)
+        self._gain_prop = None
+        self._gain_prop_key = None
+        self._gain_auto_prop = None
+        self._gain_auto_prop_key = None
+        self._gain_supported = False
+        self._gain_auto_supported = False
+        self._gain_notify_registered = False
+        self._gain_auto_notify_registered = False
+        self._gain_auto_polling_fallback = False
+        self._gain_last_value = None
+        self._gain_auto_last_value = None
+        self._gain_display_text = "N/A"
+        self._gain_auto_display_text = "N/A"
+        self._gain_timer = QTimer(self)
+        self._gain_timer.setInterval(1000)
+        self._gain_timer.timeout.connect(self._on_gain_timer)
         self._resolution_error_text = None
         self._dbg_counter = 0
         self._frame_lock = Lock()
@@ -165,6 +265,30 @@ class CameraSettingsWidget(QWidget):
         self.advanced_button.clicked.connect(self.on_advanced)
         settings_layout.addRow(self.advanced_button)
 
+        self.exposure_auto_status_label = QLabel("Auto Exposure: N/A", self.settings_group)
+        self.exposure_auto_change_button = QPushButton("Change...", self.settings_group)
+        self.exposure_auto_change_button.clicked.connect(self._on_change_exposure_auto_clicked)
+        settings_layout.addRow(self.exposure_auto_status_label)
+        settings_layout.addRow(self.exposure_auto_change_button)
+
+        self.exposure_status_label = QLabel("Exposure: N/A", self.settings_group)
+        self.exposure_change_button = QPushButton("Change...", self.settings_group)
+        self.exposure_change_button.clicked.connect(self._on_change_exposure_clicked)
+        settings_layout.addRow(self.exposure_status_label)
+        settings_layout.addRow(self.exposure_change_button)
+
+        self.gain_auto_status_label = QLabel("Auto Gain: N/A", self.settings_group)
+        self.gain_auto_change_button = QPushButton("Change...", self.settings_group)
+        self.gain_auto_change_button.clicked.connect(self._on_change_gain_auto_clicked)
+        settings_layout.addRow(self.gain_auto_status_label)
+        settings_layout.addRow(self.gain_auto_change_button)
+
+        self.gain_status_label = QLabel("Gain: N/A", self.settings_group)
+        self.gain_change_button = QPushButton("Change...", self.settings_group)
+        self.gain_change_button.clicked.connect(self._on_change_gain_clicked)
+        settings_layout.addRow(self.gain_status_label)
+        settings_layout.addRow(self.gain_change_button)
+
         content_layout = QHBoxLayout()
         content_layout.addWidget(preview_container, 2)
         content_layout.addWidget(self.settings_group, 1)
@@ -230,6 +354,10 @@ class CameraSettingsWidget(QWidget):
             self._dbg_log("CHANGED_CHANNEL", "device_open begin", device_info)
             self.preview_grabber.device_open(device_info)
             self._dbg_log("CHANGED_CHANNEL", "device_open ok", device_info)
+            try:
+                self._apply_persisted_settings(self.preview_grabber.device_property_map)
+            except Exception as exc:
+                self._log_persist_apply_failed("apply", "settings", exc)
             if self.display is not None:
                 self._dbg_log("CHANGED_CHANNEL", "stream_setup begin", device_info)
                 self.preview_grabber.stream_setup(self.preview_sink, self.display)
@@ -270,6 +398,8 @@ class CameraSettingsWidget(QWidget):
             except ic4.IC4Exception:
                 pass
         self._reset_fps_counters()
+        self._reset_exposure_state()
+        self._reset_gain_state()
         self._reset_awb_state()
 
     def _show_disconnected(self, entry: Optional[ChannelEntry]) -> None:
@@ -280,6 +410,8 @@ class CameraSettingsWidget(QWidget):
         self._pixel_format_entries = self._build_fixed_pixel_format_entries()
         self._set_controls_enabled(False)
         self._reset_fps_counters()
+        self._reset_exposure_state()
+        self._reset_gain_state()
         self._reset_awb_state()
         if entry is None:
             self.status_label.setText("Status: Disconnected")
@@ -305,7 +437,11 @@ class CameraSettingsWidget(QWidget):
         self._current_pixel_format = self._read_current_pixel_format(prop_map)
         self._setup_awb_property(prop_map)
         self._setup_wb_properties(prop_map)
+        self._setup_exposure_properties(prop_map)
+        self._setup_gain_properties(prop_map)
         self._refresh_awb_state(prop_map, source="LOAD")
+        self._refresh_exposure_state(prop_map, source="LOAD")
+        self._refresh_gain_state(prop_map, source="LOAD")
 
         frame_rate_id = getattr(ic4.PropId, "ACQUISITION_FRAME_RATE", None)
         self._current_frame_rate = None
@@ -362,6 +498,10 @@ class CameraSettingsWidget(QWidget):
 
         if self._awb_polling_fallback and self._is_connected():
             self._poll_awb_state()
+        if self._exposure_auto_polling_fallback and self._is_connected():
+            self._poll_exposure_auto_state()
+        if self._gain_auto_polling_fallback and self._is_connected():
+            self._poll_gain_auto_state()
 
         try:
             stats = self.preview_grabber.stream_statistics
@@ -443,7 +583,16 @@ class CameraSettingsWidget(QWidget):
             self._dbg_log("SET_RES", f"EXC {type(exc).__name__}: {exc}")
             self._set_resolution_error(f"{type(exc).__name__}: {exc}")
             raise
+        self._persist_update({"resolution": {"width": int(width), "height": int(height)}})
         self._dbg_log("SET_RES", "ok")
+
+    def _apply_pixel_format(self, prop_map: ic4.PropertyMap, prop_id, value: object) -> None:
+        prop_map.set_value(prop_id, value)
+        try:
+            value_str = prop_map.get_value_str(prop_id)
+        except Exception:
+            value_str = getattr(value, "name", None) or str(value)
+        self._persist_update({"pixel_format": value_str})
 
     def _refresh_frequent_settings_ui(self) -> None:
         self._set_enum_button_state(
@@ -468,6 +617,8 @@ class CameraSettingsWidget(QWidget):
             self.frame_rate_button.setToolTip("")
             self.frame_rate_button.setEnabled(self._controls_enabled)
 
+        self._apply_exposure_ui()
+        self._apply_gain_ui()
         self._apply_awb_ui()
         self._apply_wb_ui()
         self.advanced_button.setEnabled(False)
@@ -512,6 +663,18 @@ class CameraSettingsWidget(QWidget):
 
     def _log_awb_exception(self, prefix: str, exc: Exception) -> None:
         self._log_awb(f"{prefix} EXC: {type(exc).__name__} {exc}")
+
+    def _log_exposure(self, message: str) -> None:
+        print(f"[Exposure] {message}")
+
+    def _log_exposure_exception(self, prefix: str, exc: Exception) -> None:
+        self._log_exposure(f"{prefix} EXC: {type(exc).__name__} {exc}")
+
+    def _log_gain(self, message: str) -> None:
+        print(f"[Gain] {message}")
+
+    def _log_gain_exception(self, prefix: str, exc: Exception) -> None:
+        self._log_gain(f"{prefix} EXC: {type(exc).__name__} {exc}")
 
     def _dbg_log(self, tag: str, message: str, device_info: Optional[object] = None) -> None:
         self._dbg_counter += 1
@@ -559,6 +722,296 @@ class CameraSettingsWidget(QWidget):
     def _log_wb_exception(self, prefix: str, exc: Exception) -> None:
         self._log_wb(f"{prefix} EXC: {type(exc).__name__} {exc}")
 
+    @staticmethod
+    def _first_value(obj: object, names: tuple[str, ...]) -> str:
+        for name in names:
+            if hasattr(obj, name):
+                value = getattr(obj, name)
+                if value:
+                    return str(value)
+        return ""
+
+    def _get_device_identity(self) -> tuple[str, str, str]:
+        device_info = None
+        try:
+            device_info = self.preview_grabber.device_info
+        except Exception:
+            device_info = None
+        if device_info is not None:
+            serial = self._first_value(device_info, ("serial", "serial_number", "unique_id"))
+            unique_name = self._first_value(device_info, ("unique_name", "name", "display_name"))
+            model = self._first_value(device_info, ("model_name", "model", "display_name"))
+            return serial, unique_name, model
+        if self._active_entry is not None:
+            serial = self._active_entry.device_identity.serial or ""
+            unique_name = self._active_entry.device_identity.unique_name or ""
+            model = self._active_entry.device_identity.model or ""
+            return serial, unique_name, model
+        return "", "", ""
+
+    @staticmethod
+    def _persist_key(serial: str, unique_name: str) -> str:
+        serial_key = (serial or "").strip()
+        if serial_key:
+            return serial_key
+        return (unique_name or "").strip()
+
+    def _persist_update(self, updates: dict) -> None:
+        serial, unique_name, model = self._get_device_identity()
+        key = self._persist_key(serial, unique_name)
+        if not key:
+            return
+        if self._settings_store.update(key, serial, unique_name, model, updates):
+            print(f"[persist] saved settings for serial={serial} unique_name={unique_name}")
+
+    def _log_persist_apply_failed(self, key: str, value: object, exc: Exception) -> None:
+        print(f"[persist] apply failed key={key} value={value} exc={type(exc).__name__}: {exc}")
+
+    @staticmethod
+    def _resolve_prop_key(prop_map: ic4.PropertyMap, prop_id: Optional[object], fallback: str) -> Optional[object]:
+        if prop_id is not None:
+            try:
+                prop_map.find(prop_id)
+                return prop_id
+            except Exception:
+                pass
+        try:
+            prop_map.find(fallback)
+            return fallback
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_pixel_format_value(value: object) -> object:
+        if isinstance(value, str):
+            imagetype = getattr(ic4, "imagetype", None)
+            pixel_enum = getattr(imagetype, "PixelFormat", None)
+            if pixel_enum is not None and hasattr(pixel_enum, value):
+                return getattr(pixel_enum, value)
+        return value
+
+    def _apply_prop_value(
+        self,
+        prop_map: ic4.PropertyMap,
+        prop_id: Optional[object],
+        fallback: str,
+        value: object,
+        key_label: str,
+    ) -> None:
+        prop_key = self._resolve_prop_key(prop_map, prop_id, fallback)
+        if prop_key is None:
+            return
+        try:
+            prop_map.set_value(prop_key, value)
+        except Exception as exc:
+            self._log_persist_apply_failed(key_label, value, exc)
+
+    def _apply_wb_ratio(
+        self,
+        prop_map: ic4.PropertyMap,
+        selector_key: object,
+        ratio_key: object,
+        channel: str,
+        value: float,
+    ) -> None:
+        selector_value = channel
+        try:
+            prop_map.set_value(selector_key, selector_value)
+        except Exception:
+            selector_value = None
+            try:
+                selector_prop = prop_map.find(selector_key)
+                entries = getattr(selector_prop, "entries", None)
+                if entries:
+                    for entry in entries:
+                        name = getattr(entry, "name", None)
+                        entry_value = getattr(entry, "value", None)
+                        if name is None or entry_value is None:
+                            continue
+                        if str(name).strip().lower() == channel.lower():
+                            selector_value = entry_value
+                            break
+            except Exception as exc:
+                self._log_persist_apply_failed("BalanceRatioSelector", channel, exc)
+                return
+            if selector_value is None:
+                return
+            try:
+                prop_map.set_value(selector_key, selector_value)
+            except Exception as exc:
+                self._log_persist_apply_failed("BalanceRatioSelector", selector_value, exc)
+                return
+        try:
+            prop_map.set_value(ratio_key, float(value))
+        except Exception as exc:
+            self._log_persist_apply_failed("BalanceRatio", value, exc)
+
+    def _apply_persisted_settings(self, prop_map: ic4.PropertyMap) -> None:
+        try:
+            serial, unique_name, _ = self._get_device_identity()
+            key = self._persist_key(serial, unique_name)
+            if not key:
+                return
+            record = self._settings_store.get(serial, unique_name)
+            if not record:
+                return
+            print(f"[persist] apply settings for serial={serial} unique_name={unique_name}")
+
+            resolution = record.get("resolution")
+            if isinstance(resolution, dict):
+                width = resolution.get("width")
+                height = resolution.get("height")
+                if width is not None and height is not None:
+                    width_id = getattr(ic4.PropId, "WIDTH", None)
+                    height_id = getattr(ic4.PropId, "HEIGHT", None)
+                    if width_id is not None and height_id is not None:
+                        try:
+                            prop_map.set_value(width_id, int(width))
+                            prop_map.set_value(height_id, int(height))
+                        except Exception as exc:
+                            self._log_persist_apply_failed("Resolution", f"{width}x{height}", exc)
+
+            pixel_format = record.get("pixel_format")
+            if pixel_format is not None:
+                prop_id = getattr(ic4.PropId, "PIXEL_FORMAT", None)
+                if prop_id is not None:
+                    value = self._resolve_pixel_format_value(pixel_format)
+                    try:
+                        prop_map.set_value(prop_id, value)
+                    except Exception as exc:
+                        self._log_persist_apply_failed("PixelFormat", pixel_format, exc)
+
+            frame_rate = record.get("frame_rate")
+            if frame_rate is not None:
+                prop_id = getattr(ic4.PropId, "ACQUISITION_FRAME_RATE", None)
+                if prop_id is not None:
+                    try:
+                        prop_map.set_value(prop_id, float(frame_rate))
+                    except Exception as exc:
+                        self._log_persist_apply_failed("FrameRate", frame_rate, exc)
+
+            balance_white_auto = record.get("balance_white_auto")
+            if balance_white_auto is not None:
+                self._apply_prop_value(
+                    prop_map,
+                    getattr(ic4.PropId, "BALANCE_WHITE_AUTO", None),
+                    "BalanceWhiteAuto",
+                    balance_white_auto,
+                    "BalanceWhiteAuto",
+                )
+
+            balance_ratio = record.get("balance_ratio")
+            if isinstance(balance_ratio, dict):
+                selector_key = self._resolve_prop_key(
+                    prop_map,
+                    getattr(ic4.PropId, "BALANCE_RATIO_SELECTOR", None),
+                    "BalanceRatioSelector",
+                )
+                ratio_key = self._resolve_prop_key(
+                    prop_map,
+                    getattr(ic4.PropId, "BALANCE_RATIO", None),
+                    "BalanceRatio",
+                )
+                if selector_key is not None and ratio_key is not None:
+                    channel_map = (
+                        ("Red", balance_ratio.get("red")),
+                        ("Green", balance_ratio.get("green")),
+                        ("Blue", balance_ratio.get("blue")),
+                    )
+                    for channel, value in channel_map:
+                        if value is None:
+                            continue
+                        self._apply_wb_ratio(prop_map, selector_key, ratio_key, channel, float(value))
+
+            exposure_auto = record.get("exposure_auto")
+            if exposure_auto is not None:
+                self._apply_prop_value(
+                    prop_map,
+                    getattr(ic4.PropId, "EXPOSURE_AUTO", None),
+                    "ExposureAuto",
+                    exposure_auto,
+                    "ExposureAuto",
+                )
+
+            exposure_time = record.get("exposure_time")
+            if exposure_time is not None:
+                self._apply_prop_value(
+                    prop_map,
+                    getattr(ic4.PropId, "EXPOSURE_TIME", None),
+                    "ExposureTime",
+                    float(exposure_time),
+                    "ExposureTime",
+                )
+
+            gain_auto = record.get("gain_auto")
+            if gain_auto is not None:
+                self._apply_prop_value(
+                    prop_map,
+                    getattr(ic4.PropId, "GAIN_AUTO", None),
+                    "GainAuto",
+                    gain_auto,
+                    "GainAuto",
+                )
+
+            gain_value = record.get("gain")
+            if gain_value is not None:
+                self._apply_prop_value(
+                    prop_map,
+                    getattr(ic4.PropId, "GAIN", None),
+                    "Gain",
+                    float(gain_value),
+                    "Gain",
+                )
+
+            print(f"[persist] apply settings for serial={serial} unique_name={unique_name}")
+        except Exception as exc:
+            self._log_persist_apply_failed("apply", "settings", exc)
+
+    def _persist_wb_values(self, r_value: float, g_value: float, b_value: float) -> None:
+        self._persist_update(
+            {
+                "balance_ratio": {
+                    "red": float(r_value),
+                    "green": float(g_value),
+                    "blue": float(b_value),
+                }
+            }
+        )
+
+    def _reset_exposure_state(self) -> None:
+        self._stop_exposure_timer()
+        self._exposure_prop = None
+        self._exposure_prop_key = None
+        self._exposure_auto_prop = None
+        self._exposure_auto_prop_key = None
+        self._exposure_notify_registered = False
+        self._exposure_auto_notify_registered = False
+        self._exposure_auto_polling_fallback = False
+        self._exposure_supported = False
+        self._exposure_auto_supported = False
+        self._exposure_last_value = None
+        self._exposure_auto_last_value = None
+        self._exposure_display_text = "N/A"
+        self._exposure_auto_display_text = "N/A"
+        self._apply_exposure_ui()
+
+    def _reset_gain_state(self) -> None:
+        self._stop_gain_timer()
+        self._gain_prop = None
+        self._gain_prop_key = None
+        self._gain_auto_prop = None
+        self._gain_auto_prop_key = None
+        self._gain_supported = False
+        self._gain_auto_supported = False
+        self._gain_notify_registered = False
+        self._gain_auto_notify_registered = False
+        self._gain_auto_polling_fallback = False
+        self._gain_last_value = None
+        self._gain_auto_last_value = None
+        self._gain_display_text = "N/A"
+        self._gain_auto_display_text = "N/A"
+        self._apply_gain_ui()
+
     def _reset_awb_state(self) -> None:
         self._awb_prop = None
         self._awb_prop_key = None
@@ -569,6 +1022,612 @@ class CameraSettingsWidget(QWidget):
         self._awb_display_text = "N/A"
         self._apply_awb_ui()
         self._reset_wb_state()
+
+    def _setup_exposure_properties(self, prop_map: ic4.PropertyMap) -> None:
+        self._reset_exposure_state()
+        self._exposure_auto_polling_fallback = True
+
+        prop_id = getattr(ic4.PropId, "EXPOSURE_TIME", None)
+        if prop_id is not None:
+            try:
+                self._exposure_prop = prop_map.find(prop_id)
+                self._exposure_prop_key = prop_id
+            except Exception as exc:
+                self._log_exposure_exception("find EXPOSURE_TIME", exc)
+                self._exposure_prop = None
+                self._exposure_prop_key = None
+
+        if self._exposure_prop is None:
+            try:
+                self._exposure_prop = prop_map.find("ExposureTime")
+                self._exposure_prop_key = "ExposureTime"
+            except Exception as exc:
+                self._log_exposure_exception("find ExposureTime", exc)
+                self._exposure_prop = None
+                self._exposure_prop_key = None
+
+        self._exposure_supported = self._exposure_prop is not None and self._exposure_prop_key is not None
+        if self._exposure_supported and hasattr(self._exposure_prop, "event_add_notification"):
+            try:
+                self._exposure_prop.event_add_notification(self._on_exposure_time_notification)
+                self._exposure_notify_registered = True
+                self._log_exposure("ExposureTime notification registered")
+            except Exception as exc:
+                self._log_exposure_exception("ExposureTime notification", exc)
+        elif self._exposure_supported:
+            self._log_exposure("ExposureTime notification not available")
+
+        prop_id = getattr(ic4.PropId, "EXPOSURE_AUTO", None)
+        if prop_id is not None:
+            try:
+                self._exposure_auto_prop = prop_map.find(prop_id)
+                self._exposure_auto_prop_key = prop_id
+            except Exception as exc:
+                self._log_exposure_exception("find EXPOSURE_AUTO", exc)
+                self._exposure_auto_prop = None
+                self._exposure_auto_prop_key = None
+
+        if self._exposure_auto_prop is None:
+            try:
+                self._exposure_auto_prop = prop_map.find("ExposureAuto")
+                self._exposure_auto_prop_key = "ExposureAuto"
+            except Exception as exc:
+                self._log_exposure_exception("find ExposureAuto", exc)
+                self._exposure_auto_prop = None
+                self._exposure_auto_prop_key = None
+
+        self._exposure_auto_supported = (
+            self._exposure_auto_prop is not None and self._exposure_auto_prop_key is not None
+        )
+        if not self._exposure_auto_supported:
+            self._exposure_auto_polling_fallback = False
+            return
+
+        if hasattr(self._exposure_auto_prop, "event_add_notification"):
+            try:
+                self._exposure_auto_prop.event_add_notification(self._on_exposure_auto_notification)
+                self._exposure_auto_notify_registered = True
+                self._exposure_auto_polling_fallback = False
+                self._log_exposure("ExposureAuto notification registered")
+            except Exception as exc:
+                self._log_exposure_exception("ExposureAuto notification", exc)
+                self._exposure_auto_polling_fallback = True
+        else:
+            self._log_exposure("ExposureAuto notification not available")
+
+    def _apply_exposure_ui(self) -> None:
+        exposure_text = self._exposure_display_text if self._exposure_supported else "N/A"
+        self.exposure_status_label.setText(f"Exposure: {exposure_text}")
+        self.exposure_change_button.setEnabled(self._exposure_supported and self._controls_enabled)
+
+        auto_text = self._exposure_auto_display_text if self._exposure_auto_supported else "N/A"
+        self.exposure_auto_status_label.setText(f"Auto Exposure: {auto_text}")
+        self.exposure_auto_change_button.setEnabled(self._exposure_auto_supported and self._controls_enabled)
+
+    def _refresh_exposure_state(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        self._refresh_exposure_time(prop_map, source=source)
+        self._refresh_exposure_auto(prop_map, source=source)
+
+    def _refresh_exposure_time(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._exposure_supported or self._exposure_prop_key is None:
+            self._exposure_display_text = "N/A"
+            self._apply_exposure_ui()
+            return
+
+        try:
+            value = float(prop_map.get_value_float(self._exposure_prop_key))
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} get_value_float", exc)
+            self._exposure_display_text = "N/A"
+            self._apply_exposure_ui()
+            return
+
+        display = self._format_exposure_value(value)
+        if value != self._exposure_last_value:
+            self._log_exposure(f"{source} value={display}")
+            self._exposure_last_value = value
+        self._exposure_display_text = display
+        self._apply_exposure_ui()
+
+    def _refresh_exposure_auto(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._exposure_auto_supported or self._exposure_auto_prop_key is None:
+            self._exposure_auto_display_text = "N/A"
+            self._apply_exposure_ui()
+            return
+
+        try:
+            value = prop_map.get_value_str(self._exposure_auto_prop_key)
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} get_value_str", exc)
+            self._exposure_auto_display_text = "N/A"
+            self._apply_exposure_ui()
+            return
+
+        previous_value = self._exposure_auto_last_value
+        if value != previous_value:
+            self._log_exposure(f"{source} auto={value}")
+        self._exposure_auto_last_value = value
+
+        if value in ("Off", "Continuous"):
+            display = value
+        else:
+            display = "N/A"
+        self._exposure_auto_display_text = display
+        self._apply_exposure_ui()
+        if value != previous_value:
+            self._handle_exposure_auto_change(previous_value, value, prop_map, source=source)
+
+    def _poll_exposure_auto_state(self) -> None:
+        if not self._exposure_auto_supported:
+            return
+        if self.preview_grabber is None or not self.preview_grabber.is_device_valid:
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception("POLL prop_map", exc)
+            return
+        self._refresh_exposure_auto(prop_map, source="POLL")
+
+    def _apply_exposure_auto_value(self, value: str, source: str) -> tuple[bool, str]:
+        if not self._exposure_auto_supported or self._exposure_auto_prop_key is None:
+            return False, "ExposureAuto not supported."
+        if not self._is_connected():
+            return False, "Camera not connected."
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} prop_map", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        try:
+            prop_map.set_value(self._exposure_auto_prop_key, value)
+            self._log_exposure(f"{source} set_value key={self._exposure_auto_prop_key} value={value} ok")
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} set_value ExposureAuto", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        self._refresh_exposure_auto(prop_map, source=source)
+        try:
+            stored_value = prop_map.get_value_str(self._exposure_auto_prop_key)
+        except Exception:
+            stored_value = value
+        self._persist_update({"exposure_auto": stored_value})
+        return True, ""
+
+    def _apply_exposure_time_value(self, value_us: float, source: str) -> tuple[bool, str]:
+        if not self._exposure_supported or self._exposure_prop_key is None:
+            return False, "ExposureTime not supported."
+        if not self._is_connected():
+            return False, "Camera not connected."
+        min_value, max_value = self._read_exposure_bounds()
+        if min_value is not None and value_us < min_value:
+            return False, f"Out of range (min={min_value})."
+        if max_value is not None and value_us > max_value:
+            return False, f"Out of range (max={max_value})."
+        if min_value is None and value_us <= 0:
+            return False, "Value must be greater than 0."
+
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} prop_map", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        try:
+            prop_map.set_value(self._exposure_prop_key, float(value_us))
+            self._log_exposure(f"{source} set_value key={self._exposure_prop_key} value={float(value_us):.3f} ok")
+        except Exception as exc:
+            self._log_exposure_exception(f"{source} set_value ExposureTime", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        self._refresh_exposure_time(prop_map, source=source)
+        try:
+            stored_value = prop_map.get_value_float(self._exposure_prop_key)
+        except Exception:
+            stored_value = float(value_us)
+        self._persist_update({"exposure_time": float(stored_value)})
+        return True, ""
+
+    def _on_exposure_time_notification(self, prop: ic4.Property) -> None:
+        if not self._exposure_supported:
+            return
+        if not self._is_connected():
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception("NOTIFY prop_map", exc)
+            return
+        self._refresh_exposure_time(prop_map, source="NOTIFY")
+
+    def _on_exposure_auto_notification(self, prop: ic4.Property) -> None:
+        if not self._exposure_auto_supported:
+            return
+        if not self._is_connected():
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception("AUTO NOTIFY prop_map", exc)
+            return
+        self._refresh_exposure_auto(prop_map, source="NOTIFY")
+
+    def _handle_exposure_auto_change(
+        self,
+        previous: Optional[str],
+        current: str,
+        prop_map: ic4.PropertyMap,
+        source: str,
+    ) -> None:
+        if current == "Continuous":
+            self._start_exposure_timer(prop_map, source=source)
+        else:
+            self._stop_exposure_timer()
+
+    def _start_exposure_timer(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._exposure_supported:
+            return
+        if not self._exposure_timer.isActive():
+            self._exposure_timer.start()
+        self._refresh_exposure_time(prop_map, source=source)
+
+    def _stop_exposure_timer(self) -> None:
+        if self._exposure_timer.isActive():
+            self._exposure_timer.stop()
+
+    def _on_exposure_timer(self) -> None:
+        if not self._is_connected():
+            return
+        if self._exposure_auto_last_value != "Continuous":
+            self._stop_exposure_timer()
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_exposure_exception("TIMER prop_map", exc)
+            return
+        self._refresh_exposure_time(prop_map, source="TIMER")
+
+    @staticmethod
+    def _format_exposure_value(value: float) -> str:
+        us_value = float(value)
+        ms_value = us_value / 1000.0
+        return f"{us_value:.0f} us ({ms_value:.2f} ms)"
+
+    def _read_exposure_bounds(self) -> tuple[Optional[float], Optional[float]]:
+        if self._exposure_prop is None:
+            return None, None
+
+        min_value = None
+        max_value = None
+        for attr in ("minimum", "min"):
+            try:
+                value = getattr(self._exposure_prop, attr)
+            except Exception:
+                value = None
+            if value is None:
+                continue
+            try:
+                min_value = float(value)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        for attr in ("maximum", "max"):
+            try:
+                value = getattr(self._exposure_prop, attr)
+            except Exception:
+                value = None
+            if value is None:
+                continue
+            try:
+                max_value = float(value)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        return min_value, max_value
+
+    def _setup_gain_properties(self, prop_map: ic4.PropertyMap) -> None:
+        self._reset_gain_state()
+        self._gain_auto_polling_fallback = True
+
+        prop_id = getattr(ic4.PropId, "GAIN", None)
+        if prop_id is not None:
+            try:
+                self._gain_prop = prop_map.find(prop_id)
+                self._gain_prop_key = prop_id
+            except Exception as exc:
+                self._log_gain_exception("find GAIN", exc)
+                self._gain_prop = None
+                self._gain_prop_key = None
+
+        if self._gain_prop is None:
+            try:
+                self._gain_prop = prop_map.find("Gain")
+                self._gain_prop_key = "Gain"
+            except Exception as exc:
+                self._log_gain_exception("find Gain", exc)
+                self._gain_prop = None
+                self._gain_prop_key = None
+
+        self._gain_supported = self._gain_prop is not None and self._gain_prop_key is not None
+        if self._gain_supported and hasattr(self._gain_prop, "event_add_notification"):
+            try:
+                self._gain_prop.event_add_notification(self._on_gain_notification)
+                self._gain_notify_registered = True
+                self._log_gain("Gain notification registered")
+            except Exception as exc:
+                self._log_gain_exception("Gain notification", exc)
+        elif self._gain_supported:
+            self._log_gain("Gain notification not available")
+
+        prop_id = getattr(ic4.PropId, "GAIN_AUTO", None)
+        if prop_id is not None:
+            try:
+                self._gain_auto_prop = prop_map.find(prop_id)
+                self._gain_auto_prop_key = prop_id
+            except Exception as exc:
+                self._log_gain_exception("find GAIN_AUTO", exc)
+                self._gain_auto_prop = None
+                self._gain_auto_prop_key = None
+
+        if self._gain_auto_prop is None:
+            try:
+                self._gain_auto_prop = prop_map.find("GainAuto")
+                self._gain_auto_prop_key = "GainAuto"
+            except Exception as exc:
+                self._log_gain_exception("find GainAuto", exc)
+                self._gain_auto_prop = None
+                self._gain_auto_prop_key = None
+
+        self._gain_auto_supported = self._gain_auto_prop is not None and self._gain_auto_prop_key is not None
+        if not self._gain_auto_supported:
+            self._gain_auto_polling_fallback = False
+            return
+
+        if hasattr(self._gain_auto_prop, "event_add_notification"):
+            try:
+                self._gain_auto_prop.event_add_notification(self._on_gain_auto_notification)
+                self._gain_auto_notify_registered = True
+                self._gain_auto_polling_fallback = False
+                self._log_gain("GainAuto notification registered")
+            except Exception as exc:
+                self._log_gain_exception("GainAuto notification", exc)
+                self._gain_auto_polling_fallback = True
+        else:
+            self._log_gain("GainAuto notification not available")
+
+    def _apply_gain_ui(self) -> None:
+        gain_text = self._gain_display_text if self._gain_supported else "N/A"
+        self.gain_status_label.setText(f"Gain: {gain_text}")
+        self.gain_change_button.setEnabled(self._gain_supported and self._controls_enabled)
+
+        auto_text = self._gain_auto_display_text if self._gain_auto_supported else "N/A"
+        self.gain_auto_status_label.setText(f"Auto Gain: {auto_text}")
+        self.gain_auto_change_button.setEnabled(self._gain_auto_supported and self._controls_enabled)
+
+    def _refresh_gain_state(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        self._refresh_gain_value(prop_map, source=source)
+        self._refresh_gain_auto(prop_map, source=source)
+
+    def _refresh_gain_value(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._gain_supported or self._gain_prop_key is None:
+            self._gain_display_text = "N/A"
+            self._apply_gain_ui()
+            return
+
+        try:
+            value = float(prop_map.get_value_float(self._gain_prop_key))
+        except Exception as exc:
+            self._log_gain_exception(f"{source} get_value_float", exc)
+            self._gain_display_text = "N/A"
+            self._apply_gain_ui()
+            return
+
+        display = self._format_gain_value(value)
+        if value != self._gain_last_value:
+            self._log_gain(f"{source} value={display}")
+            self._gain_last_value = value
+        self._gain_display_text = display
+        self._apply_gain_ui()
+
+    def _refresh_gain_auto(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._gain_auto_supported or self._gain_auto_prop_key is None:
+            self._gain_auto_display_text = "N/A"
+            self._apply_gain_ui()
+            return
+
+        try:
+            value = prop_map.get_value_str(self._gain_auto_prop_key)
+        except Exception as exc:
+            self._log_gain_exception(f"{source} get_value_str", exc)
+            self._gain_auto_display_text = "N/A"
+            self._apply_gain_ui()
+            return
+
+        previous_value = self._gain_auto_last_value
+        if value != previous_value:
+            self._log_gain(f"{source} auto={value}")
+        self._gain_auto_last_value = value
+
+        if value in ("Off", "Continuous"):
+            display = value
+        else:
+            display = "N/A"
+        self._gain_auto_display_text = display
+        self._apply_gain_ui()
+        if value != previous_value:
+            self._handle_gain_auto_change(previous_value, value, prop_map, source=source)
+
+    def _poll_gain_auto_state(self) -> None:
+        if not self._gain_auto_supported:
+            return
+        if self.preview_grabber is None or not self.preview_grabber.is_device_valid:
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception("POLL prop_map", exc)
+            return
+        self._refresh_gain_auto(prop_map, source="POLL")
+
+    def _apply_gain_auto_value(self, value: str, source: str) -> tuple[bool, str]:
+        if not self._gain_auto_supported or self._gain_auto_prop_key is None:
+            return False, "GainAuto not supported."
+        if not self._is_connected():
+            return False, "Camera not connected."
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception(f"{source} prop_map", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        try:
+            prop_map.set_value(self._gain_auto_prop_key, value)
+            self._log_gain(f"{source} set_value key={self._gain_auto_prop_key} value={value} ok")
+        except Exception as exc:
+            self._log_gain_exception(f"{source} set_value GainAuto", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        self._refresh_gain_auto(prop_map, source=source)
+        try:
+            stored_value = prop_map.get_value_str(self._gain_auto_prop_key)
+        except Exception:
+            stored_value = value
+        self._persist_update({"gain_auto": stored_value})
+        return True, ""
+
+    def _apply_gain_value(self, value_db: float, source: str) -> tuple[bool, str]:
+        if not self._gain_supported or self._gain_prop_key is None:
+            return False, "Gain not supported."
+        if not self._is_connected():
+            return False, "Camera not connected."
+        min_value, max_value = self._read_gain_bounds()
+        if min_value is not None and value_db < min_value:
+            return False, f"Out of range (min={min_value})."
+        if max_value is not None and value_db > max_value:
+            return False, f"Out of range (max={max_value})."
+
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception(f"{source} prop_map", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        try:
+            prop_map.set_value(self._gain_prop_key, float(value_db))
+            self._log_gain(f"{source} set_value key={self._gain_prop_key} value={float(value_db):.2f} ok")
+        except Exception as exc:
+            self._log_gain_exception(f"{source} set_value Gain", exc)
+            return False, f"{type(exc).__name__}: {exc}"
+
+        self._refresh_gain_value(prop_map, source=source)
+        try:
+            stored_value = prop_map.get_value_float(self._gain_prop_key)
+        except Exception:
+            stored_value = float(value_db)
+        self._persist_update({"gain": float(stored_value)})
+        return True, ""
+
+    def _on_gain_notification(self, prop: ic4.Property) -> None:
+        if not self._gain_supported:
+            return
+        if not self._is_connected():
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception("NOTIFY prop_map", exc)
+            return
+        self._refresh_gain_value(prop_map, source="NOTIFY")
+
+    def _on_gain_auto_notification(self, prop: ic4.Property) -> None:
+        if not self._gain_auto_supported:
+            return
+        if not self._is_connected():
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception("AUTO NOTIFY prop_map", exc)
+            return
+        self._refresh_gain_auto(prop_map, source="NOTIFY")
+
+    def _handle_gain_auto_change(
+        self,
+        previous: Optional[str],
+        current: str,
+        prop_map: ic4.PropertyMap,
+        source: str,
+    ) -> None:
+        if current == "Continuous":
+            self._start_gain_timer(prop_map, source=source)
+        else:
+            self._stop_gain_timer()
+
+    def _start_gain_timer(self, prop_map: ic4.PropertyMap, source: str) -> None:
+        if not self._gain_supported:
+            return
+        if not self._gain_timer.isActive():
+            self._gain_timer.start()
+        self._refresh_gain_value(prop_map, source=source)
+
+    def _stop_gain_timer(self) -> None:
+        if self._gain_timer.isActive():
+            self._gain_timer.stop()
+
+    def _on_gain_timer(self) -> None:
+        if not self._is_connected():
+            return
+        if self._gain_auto_last_value != "Continuous":
+            self._stop_gain_timer()
+            return
+        try:
+            prop_map = self.preview_grabber.device_property_map
+        except Exception as exc:
+            self._log_gain_exception("TIMER prop_map", exc)
+            return
+        self._refresh_gain_value(prop_map, source="TIMER")
+
+    @staticmethod
+    def _format_gain_value(value: float) -> str:
+        return f"{float(value):.2f} dB"
+
+    def _read_gain_bounds(self) -> tuple[Optional[float], Optional[float]]:
+        if self._gain_prop is None:
+            return None, None
+
+        min_value = None
+        max_value = None
+        for attr in ("minimum", "min"):
+            try:
+                value = getattr(self._gain_prop, attr)
+            except Exception:
+                value = None
+            if value is None:
+                continue
+            try:
+                min_value = float(value)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        for attr in ("maximum", "max"):
+            try:
+                value = getattr(self._gain_prop, attr)
+            except Exception:
+                value = None
+            if value is None:
+                continue
+            try:
+                max_value = float(value)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        return min_value, max_value
 
     def _setup_awb_property(self, prop_map: ic4.PropertyMap) -> None:
         self._awb_prop = None
@@ -681,6 +1740,11 @@ class CameraSettingsWidget(QWidget):
             return False
 
         self._refresh_awb_state(prop_map, source=source)
+        try:
+            stored_value = prop_map.get_value_str(self._awb_prop_key)
+        except Exception:
+            stored_value = value
+        self._persist_update({"balance_white_auto": stored_value})
         return True
 
     def _on_awb_notification(self, prop: ic4.Property) -> None:
@@ -823,6 +1887,7 @@ class CameraSettingsWidget(QWidget):
         if value_tuple != self._wb_last_values:
             self._log_wb(f"{source} {display}")
             self._wb_last_values = value_tuple
+            self._persist_wb_values(r_value, g_value, b_value)
         self._wb_display_text = display
         self._apply_wb_ui()
 
@@ -928,6 +1993,307 @@ class CameraSettingsWidget(QWidget):
     def _set_controls_enabled(self, enabled: bool) -> None:
         self._controls_enabled = enabled
         self._refresh_frequent_settings_ui()
+
+    def _on_change_exposure_clicked(self) -> None:
+        if self._updating_controls or not self._controls_enabled:
+            return
+        if not self._exposure_supported:
+            return
+        if not self._is_connected():
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Exposure Time")
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("Exposure Time (us)", dlg))
+        input_layout = QHBoxLayout()
+        line_edit = QLineEdit(dlg)
+        min_value, max_value = self._read_exposure_bounds()
+        validator_min = min_value if min_value is not None else 0.0
+        validator_max = max_value if max_value is not None else 1_000_000_000.0
+        validator = QDoubleValidator(validator_min, validator_max, 3, line_edit)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        line_edit.setValidator(validator)
+
+        current_fps = None
+        max_us_by_fps = None
+        try:
+            prop_map = self.preview_grabber.device_property_map
+            frame_rate_id = getattr(ic4.PropId, "ACQUISITION_FRAME_RATE", None)
+            if frame_rate_id is not None:
+                current_fps = float(prop_map.get_value_float(frame_rate_id))
+        except Exception:
+            current_fps = None
+        if current_fps and current_fps > 0:
+            max_us_by_fps = 1_000_000.0 / current_fps
+
+        current_value = self._exposure_last_value
+        if current_value is None:
+            try:
+                prop_map = self.preview_grabber.device_property_map
+                current_value = float(prop_map.get_value_float(self._exposure_prop_key))
+            except Exception:
+                current_value = None
+        if current_value is not None:
+            line_edit.setText(f"{current_value:.3f}".rstrip("0").rstrip("."))
+
+        input_layout.addWidget(line_edit, 1)
+        input_layout.addWidget(QLabel("us", dlg))
+        fps_label = QLabel("(N/A fps)", dlg)
+        input_layout.addWidget(fps_label)
+        layout.addLayout(input_layout)
+
+        helper_label = QLabel("Apply with Enter or when editing finishes.", dlg)
+        layout.addWidget(helper_label)
+
+        if current_fps is None:
+            frame_rate_label = QLabel("FrameRate: N/A", dlg)
+            max_exposure_label = QLabel("Max Exposure for this fps: N/A", dlg)
+        else:
+            frame_rate_label = QLabel(f"FrameRate: {current_fps:.2f} fps", dlg)
+            if max_us_by_fps is None:
+                max_exposure_label = QLabel("Max Exposure for this fps: N/A", dlg)
+            else:
+                max_exposure_label = QLabel(f"Max Exposure for this fps: {max_us_by_fps:.1f} us", dlg)
+        layout.addWidget(frame_rate_label)
+        layout.addWidget(max_exposure_label)
+
+        error_label = QLabel("", dlg)
+        layout.addWidget(error_label)
+
+        def update_fps(text: str) -> None:
+            try:
+                value = float(text)
+            except ValueError:
+                fps_label.setText("(N/A fps)")
+                return
+            if value <= 0:
+                fps_label.setText("(N/A fps)")
+                return
+            fps_equiv = 1_000_000.0 / value
+            fps_label.setText(f"(≈ {fps_equiv:.2f} fps)")
+
+        if line_edit.text():
+            update_fps(line_edit.text())
+        line_edit.textChanged.connect(update_fps)
+
+        applying = {"active": False}
+
+        def apply_value() -> None:
+            if applying["active"]:
+                return
+            text = line_edit.text().strip()
+            if not text:
+                return
+            try:
+                value = float(text)
+            except ValueError:
+                error_label.setText("Invalid number.")
+                return
+            if max_us_by_fps is not None and value > max_us_by_fps:
+                error_label.setText(f"Too long for current fps. Must be <= {max_us_by_fps:.1f} us")
+                return
+            applying["active"] = True
+            success, message = self._apply_exposure_time_value(value, source="CHANGE")
+            if success:
+                error_label.setText("")
+            else:
+                error_label.setText(message or "Failed to apply.")
+            applying["active"] = False
+
+        line_edit.editingFinished.connect(apply_value)
+        line_edit.returnPressed.connect(apply_value)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dlg)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.exec()
+
+    def _on_change_exposure_auto_clicked(self) -> None:
+        if self._updating_controls or not self._controls_enabled:
+            return
+        if not self._exposure_auto_supported:
+            return
+        if not self._is_connected():
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Auto Exposure")
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("Select mode (applies immediately):", dlg))
+        button_group = QButtonGroup(dlg)
+        off_radio = QRadioButton("Off", dlg)
+        cont_radio = QRadioButton("Continuous", dlg)
+        button_group.addButton(off_radio)
+        button_group.addButton(cont_radio)
+        layout.addWidget(off_radio)
+        layout.addWidget(cont_radio)
+
+        if self._exposure_auto_last_value == "Off":
+            off_radio.setChecked(True)
+        elif self._exposure_auto_last_value == "Continuous":
+            cont_radio.setChecked(True)
+
+        error_label = QLabel("", dlg)
+        layout.addWidget(error_label)
+
+        applying = {"active": False}
+
+        def apply_selection(selected: str) -> None:
+            if applying["active"]:
+                return
+            if selected == self._exposure_auto_last_value:
+                return
+            applying["active"] = True
+            success, message = self._apply_exposure_auto_value(selected, source="CHANGE")
+            if success:
+                error_label.setText("")
+            else:
+                error_label.setText(message or "Failed to apply.")
+            applying["active"] = False
+
+        off_radio.toggled.connect(lambda checked: apply_selection("Off") if checked else None)
+        cont_radio.toggled.connect(lambda checked: apply_selection("Continuous") if checked else None)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dlg)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.exec()
+
+    def _on_change_gain_clicked(self) -> None:
+        if self._updating_controls or not self._controls_enabled:
+            return
+        if not self._gain_supported:
+            return
+        if not self._is_connected():
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Gain")
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("Gain (dB)", dlg))
+        input_layout = QHBoxLayout()
+        line_edit = QLineEdit(dlg)
+        min_value, max_value = self._read_gain_bounds()
+        validator_min = min_value if min_value is not None else -1_000_000.0
+        validator_max = max_value if max_value is not None else 1_000_000.0
+        validator = QDoubleValidator(validator_min, validator_max, 2, line_edit)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        line_edit.setValidator(validator)
+
+        current_value = self._gain_last_value
+        if current_value is None:
+            try:
+                prop_map = self.preview_grabber.device_property_map
+                current_value = float(prop_map.get_value_float(self._gain_prop_key))
+            except Exception:
+                current_value = None
+        if current_value is not None:
+            line_edit.setText(f"{current_value:.2f}")
+
+        input_layout.addWidget(line_edit, 1)
+        input_layout.addWidget(QLabel("dB", dlg))
+        layout.addLayout(input_layout)
+
+        helper_label = QLabel("Apply with Enter or when editing finishes.", dlg)
+        layout.addWidget(helper_label)
+
+        error_label = QLabel("", dlg)
+        layout.addWidget(error_label)
+
+        applying = {"active": False}
+
+        def apply_value() -> None:
+            if applying["active"]:
+                return
+            text = line_edit.text().strip()
+            if not text:
+                return
+            try:
+                value = float(text)
+            except ValueError:
+                error_label.setText("Invalid number.")
+                return
+            if min_value is not None and value < min_value:
+                error_label.setText(f"Out of range (min={min_value}).")
+                return
+            if max_value is not None and value > max_value:
+                error_label.setText(f"Out of range (max={max_value}).")
+                return
+            applying["active"] = True
+            success, message = self._apply_gain_value(value, source="CHANGE")
+            if success:
+                error_label.setText("")
+            else:
+                error_label.setText(message or "Failed to apply.")
+            applying["active"] = False
+
+        line_edit.editingFinished.connect(apply_value)
+        line_edit.returnPressed.connect(apply_value)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dlg)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.exec()
+
+    def _on_change_gain_auto_clicked(self) -> None:
+        if self._updating_controls or not self._controls_enabled:
+            return
+        if not self._gain_auto_supported:
+            return
+        if not self._is_connected():
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Auto Gain")
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("Select mode (applies immediately):", dlg))
+        button_group = QButtonGroup(dlg)
+        off_radio = QRadioButton("Off", dlg)
+        cont_radio = QRadioButton("Continuous", dlg)
+        button_group.addButton(off_radio)
+        button_group.addButton(cont_radio)
+        layout.addWidget(off_radio)
+        layout.addWidget(cont_radio)
+
+        if self._gain_auto_last_value == "Off":
+            off_radio.setChecked(True)
+        elif self._gain_auto_last_value == "Continuous":
+            cont_radio.setChecked(True)
+
+        error_label = QLabel("", dlg)
+        layout.addWidget(error_label)
+
+        applying = {"active": False}
+
+        def apply_selection(selected: str) -> None:
+            if applying["active"]:
+                return
+            if selected == self._gain_auto_last_value:
+                return
+            applying["active"] = True
+            success, message = self._apply_gain_auto_value(selected, source="CHANGE")
+            if success:
+                error_label.setText("")
+            else:
+                error_label.setText(message or "Failed to apply.")
+            applying["active"] = False
+
+        off_radio.toggled.connect(lambda checked: apply_selection("Off") if checked else None)
+        cont_radio.toggled.connect(lambda checked: apply_selection("Continuous") if checked else None)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dlg)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.exec()
 
     def _on_change_awb_clicked(self) -> None:
         if self._updating_controls or not self._controls_enabled:
@@ -1048,7 +2414,7 @@ class CameraSettingsWidget(QWidget):
             return
 
         success = self._reconfigure_stream(
-            lambda prop_map: prop_map.set_value(prop_id, selected)
+            lambda prop_map: self._apply_pixel_format(prop_map, prop_id, selected)
         )
         if not success:
             QMessageBox.warning(self, "", "Failed to apply PixelFormat.", QMessageBox.StandardButton.Ok)
@@ -1079,6 +2445,8 @@ class CameraSettingsWidget(QWidget):
             except ic4.IC4Exception:
                 self._current_frame_rate = float(new_rate)
             self._refresh_frequent_settings_ui()
+            if self._current_frame_rate is not None:
+                self._persist_update({"frame_rate": float(self._current_frame_rate)})
         except ic4.IC4Exception:
             success = self._reconfigure_stream(
                 lambda prop_map: prop_map.set_value(prop_id, float(new_rate))
@@ -1087,6 +2455,11 @@ class CameraSettingsWidget(QWidget):
                 QMessageBox.warning(self, "", "Failed to apply FrameRate.", QMessageBox.StandardButton.Ok)
                 if self._is_connected():
                     self._load_settings_from_device()
+            else:
+                stored_rate = self._current_frame_rate
+                if stored_rate is None:
+                    stored_rate = float(new_rate)
+                self._persist_update({"frame_rate": float(stored_rate)})
 
     def _reconfigure_stream(self, apply_update) -> bool:
         if self._active_entry is None:
@@ -1106,6 +2479,10 @@ class CameraSettingsWidget(QWidget):
             self.preview_grabber.device_open(device_info)
             self._dbg_log("RECONFIGURE_STREAM", "device_open ok", device_info)
             prop_map = self.preview_grabber.device_property_map
+            try:
+                self._apply_persisted_settings(prop_map)
+            except Exception as exc:
+                self._log_persist_apply_failed("apply", "settings", exc)
             try:
                 apply_update(prop_map)
             except Exception:
