@@ -20,6 +20,7 @@ import device_resolver
 from resourceselector import ResourceSelector
 from ui_camera_settings import CameraSettingsWidget
 from ui_channel_manager import ChannelManagerWidget
+from ui_multi_view import MultiViewWidget
 
 GOT_PHOTO_EVENT = QEvent.Type(QEvent.Type.User + 1)
 DEVICE_LOST_EVENT = QEvent.Type(QEvent.Type.User + 2)
@@ -221,6 +222,12 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         self.tabs.addTab(self.camera_settings_widget, "Camera Settings")
+        self.multi_view_widget = MultiViewWidget(
+            registry=self.channel_registry,
+            resolver=self.device_resolver,
+            parent=self,
+        )
+        self.tabs.addTab(self.multi_view_widget, "Multi View")
 
         self.tabs.currentChanged.connect(self.onTabChanged)
 
@@ -243,7 +250,21 @@ class MainWindow(QMainWindow):
 
     def onTabChanged(self, index: int):
         if self.tabs.widget(index) is self.camera_settings_widget:
-            self.camera_settings_widget.refresh_channels()
+            print("[tab-switch] to Tab2: stopping MultiView")
+            try:
+                self.multi_view_widget.stop_all()
+            except Exception:
+                pass
+            QTimer.singleShot(0, self.camera_settings_widget.refresh_channels)
+        elif self.tabs.widget(index) is self.multi_view_widget:
+            print("[tab-switch] to Tab3: stopping CameraSettings preview")
+            try:
+                self.camera_settings_widget.stop_preview_only()
+            except Exception:
+                pass
+            QTimer.singleShot(0, self.multi_view_widget.refresh_and_resume)
+        elif self.tabs.widget(index) is self.multi_view_widget:
+            self.multi_view_widget.refresh_channels()
 
     def onCloseDevice(self):
         if self.grabber.is_streaming:

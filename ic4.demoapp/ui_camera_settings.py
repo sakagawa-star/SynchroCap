@@ -426,6 +426,9 @@ class CameraSettingsWidget(QWidget):
         self._reset_gain_state()
         self._reset_awb_state()
 
+    def stop_preview_only(self) -> None:
+        self._stop_preview()
+
     def _show_disconnected(self, entry: Optional[ChannelEntry]) -> None:
         self._current_resolution = None
         self._current_pixel_format = None
