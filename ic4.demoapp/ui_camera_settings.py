@@ -15,9 +15,11 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QFrame,
     QLabel,
     QLineEdit,
     QRadioButton,
@@ -92,6 +94,14 @@ class CameraSettingsStore:
     def _timestamp_now() -> str:
         timestamp = datetime.now(timezone.utc).replace(microsecond=0)
         return timestamp.isoformat().replace("+00:00", "Z")
+
+
+class FocusWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event) -> None:
+        if not self.hasFocus():
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
 
 class CameraSettingsWidget(QWidget):
@@ -249,6 +259,12 @@ class CameraSettingsWidget(QWidget):
         self.frame_rate_button.clicked.connect(self._on_change_frame_rate_clicked)
         settings_layout.addRow("FrameRate (fps)", self.frame_rate_button)
 
+        awb_divider = QFrame(self.settings_group)
+        awb_divider.setFrameShape(QFrame.HLine)
+        awb_divider.setFrameShadow(QFrame.Sunken)
+        awb_divider.setLineWidth(2)
+        settings_layout.addRow(awb_divider)
+
         self.awb_status_label = QLabel("Auto White Balance: N/A", self.settings_group)
         self.awb_change_button = QPushButton("Change...", self.settings_group)
         self.awb_change_button.clicked.connect(self._on_change_awb_clicked)
@@ -261,9 +277,11 @@ class CameraSettingsWidget(QWidget):
         self.wb_status_label = QLabel("WB (RGB): N/A", self.settings_group)
         settings_layout.addRow(self.wb_status_label)
 
-        self.advanced_button = QPushButton("Advanced...", self.settings_group)
-        self.advanced_button.clicked.connect(self.on_advanced)
-        settings_layout.addRow(self.advanced_button)
+        exposure_auto_divider = QFrame(self.settings_group)
+        exposure_auto_divider.setFrameShape(QFrame.HLine)
+        exposure_auto_divider.setFrameShadow(QFrame.Sunken)
+        exposure_auto_divider.setLineWidth(2)
+        settings_layout.addRow(exposure_auto_divider)
 
         self.exposure_auto_status_label = QLabel("Auto Exposure: N/A", self.settings_group)
         self.exposure_auto_change_button = QPushButton("Change...", self.settings_group)
@@ -276,6 +294,12 @@ class CameraSettingsWidget(QWidget):
         self.exposure_change_button.clicked.connect(self._on_change_exposure_clicked)
         settings_layout.addRow(self.exposure_status_label)
         settings_layout.addRow(self.exposure_change_button)
+
+        gain_auto_divider = QFrame(self.settings_group)
+        gain_auto_divider.setFrameShape(QFrame.HLine)
+        gain_auto_divider.setFrameShadow(QFrame.Sunken)
+        gain_auto_divider.setLineWidth(2)
+        settings_layout.addRow(gain_auto_divider)
 
         self.gain_auto_status_label = QLabel("Auto Gain: N/A", self.settings_group)
         self.gain_auto_change_button = QPushButton("Change...", self.settings_group)
@@ -621,7 +645,6 @@ class CameraSettingsWidget(QWidget):
         self._apply_gain_ui()
         self._apply_awb_ui()
         self._apply_wb_ui()
-        self.advanced_button.setEnabled(False)
 
     def _set_enum_button_state(
         self,
@@ -2178,13 +2201,13 @@ class CameraSettingsWidget(QWidget):
 
         layout.addWidget(QLabel("Gain (dB)", dlg))
         input_layout = QHBoxLayout()
-        line_edit = QLineEdit(dlg)
+        spin_box = FocusWheelDoubleSpinBox(dlg)
         min_value, max_value = self._read_gain_bounds()
-        validator_min = min_value if min_value is not None else -1_000_000.0
-        validator_max = max_value if max_value is not None else 1_000_000.0
-        validator = QDoubleValidator(validator_min, validator_max, 2, line_edit)
-        validator.setNotation(QDoubleValidator.StandardNotation)
-        line_edit.setValidator(validator)
+        spin_min = min_value if min_value is not None else -1_000_000.0
+        spin_max = max_value if max_value is not None else 1_000_000.0
+        spin_box.setRange(spin_min, spin_max)
+        spin_box.setDecimals(2)
+        spin_box.setSingleStep(0.1)
 
         current_value = self._gain_last_value
         if current_value is None:
@@ -2194,9 +2217,9 @@ class CameraSettingsWidget(QWidget):
             except Exception:
                 current_value = None
         if current_value is not None:
-            line_edit.setText(f"{current_value:.2f}")
+            spin_box.setValue(float(current_value))
 
-        input_layout.addWidget(line_edit, 1)
+        input_layout.addWidget(spin_box, 1)
         input_layout.addWidget(QLabel("dB", dlg))
         layout.addLayout(input_layout)
 
@@ -2207,17 +2230,13 @@ class CameraSettingsWidget(QWidget):
         layout.addWidget(error_label)
 
         applying = {"active": False}
+        pending_value = {"value": None}
+        realtime_timer = QTimer(dlg)
+        realtime_timer.setSingleShot(True)
+        realtime_timer.setInterval(80)
 
-        def apply_value() -> None:
+        def apply_value(value: float, source: str) -> None:
             if applying["active"]:
-                return
-            text = line_edit.text().strip()
-            if not text:
-                return
-            try:
-                value = float(text)
-            except ValueError:
-                error_label.setText("Invalid number.")
                 return
             if min_value is not None and value < min_value:
                 error_label.setText(f"Out of range (min={min_value}).")
@@ -2226,15 +2245,36 @@ class CameraSettingsWidget(QWidget):
                 error_label.setText(f"Out of range (max={max_value}).")
                 return
             applying["active"] = True
-            success, message = self._apply_gain_value(value, source="CHANGE")
+            if source == "REALTIME":
+                self._log_gain(f"apply realtime value={value:.2f}")
+            success, message = self._apply_gain_value(value, source=source)
             if success:
                 error_label.setText("")
             else:
                 error_label.setText(message or "Failed to apply.")
             applying["active"] = False
 
-        line_edit.editingFinished.connect(apply_value)
-        line_edit.returnPressed.connect(apply_value)
+        def apply_realtime() -> None:
+            value = pending_value["value"]
+            if value is None:
+                return
+            pending_value["value"] = None
+            apply_value(float(value), source="REALTIME")
+
+        def schedule_realtime(value: float) -> None:
+            if applying["active"]:
+                return
+            pending_value["value"] = float(value)
+            realtime_timer.start()
+
+        def apply_now() -> None:
+            realtime_timer.stop()
+            pending_value["value"] = None
+            apply_value(float(spin_box.value()), source="CHANGE")
+
+        realtime_timer.timeout.connect(apply_realtime)
+        spin_box.valueChanged.connect(schedule_realtime)
+        spin_box.editingFinished.connect(apply_now)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dlg)
         buttons.rejected.connect(dlg.reject)
