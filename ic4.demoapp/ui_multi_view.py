@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 import imagingcontrol4 as ic4
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -31,6 +32,8 @@ class _SlotListener(ic4.QueueSinkListener):
 
 
 class MultiViewWidget(QWidget):
+    tabs_lock_changed = Signal(bool)
+
     def __init__(self, registry: ChannelRegistry, resolver, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.registry = registry
@@ -40,11 +43,23 @@ class MultiViewWidget(QWidget):
         self._ptp_timer = QTimer(self)
         self._ptp_timer.setInterval(1000)
         self._ptp_timer.timeout.connect(self._update_ptp_all)
+        self._recording = False
         self._build_ui()
         self.refresh_channels()
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
+        controls_layout = QHBoxLayout()
+        self.recording_checkbox = QCheckBox("Simulate Recording", self)
+        self.recording_checkbox.setChecked(False)
+        self.recording_checkbox.toggled.connect(self._on_recording_toggled)
+        self.lock_tabs_checkbox = QCheckBox("Lock Tab1/Tab2 while recording", self)
+        self.lock_tabs_checkbox.setChecked(False)
+        self.lock_tabs_checkbox.toggled.connect(self._on_lock_toggled)
+        controls_layout.addWidget(self.recording_checkbox)
+        controls_layout.addWidget(self.lock_tabs_checkbox)
+        controls_layout.addStretch(1)
+        main_layout.addLayout(controls_layout)
         grid = QGridLayout()
         main_layout.addLayout(grid, 1)
 
@@ -172,6 +187,26 @@ class MultiViewWidget(QWidget):
     def refresh_and_resume(self) -> None:
         self.refresh_channels()
         self.resume_selected()
+
+    def is_tabs_locked(self) -> bool:
+        return self._recording and self.lock_tabs_checkbox.isChecked()
+
+    def _emit_tabs_lock(self) -> None:
+        self.tabs_lock_changed.emit(self.is_tabs_locked())
+
+    def _on_recording_toggled(self, checked: bool) -> None:
+        self._recording = checked
+        if checked:
+            if not self.lock_tabs_checkbox.isChecked():
+                self.lock_tabs_checkbox.setChecked(True)
+            self.lock_tabs_checkbox.setEnabled(False)
+        else:
+            self.lock_tabs_checkbox.setEnabled(True)
+        self._emit_tabs_lock()
+
+    def _on_lock_toggled(self, checked: bool) -> None:
+        _ = checked
+        self._emit_tabs_lock()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

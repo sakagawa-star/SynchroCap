@@ -101,6 +101,8 @@ class MainWindow(QMainWindow):
         self.video_writer = ic4.VideoWriter(ic4.VideoWriterType.MP4_H264)
 
         self.createUI()
+        self._tabs_locked = False
+        self._tab_lock_revert_pending = False
 
         try:
             self.display = self.video_widget.as_display()
@@ -227,6 +229,7 @@ class MainWindow(QMainWindow):
             resolver=self.device_resolver,
             parent=self,
         )
+        self.multi_view_widget.tabs_lock_changed.connect(self.set_tabs_locked)
         self.tabs.addTab(self.multi_view_widget, "Multi View")
 
         self.tabs.currentChanged.connect(self.onTabChanged)
@@ -249,6 +252,12 @@ class MainWindow(QMainWindow):
         self.update_statistics_timer.start()
 
     def onTabChanged(self, index: int):
+        if self._tabs_locked:
+            multi_index = self.tabs.indexOf(self.multi_view_widget)
+            if multi_index != -1 and index != multi_index:
+                print("[tab-lock] blocked tab switch during recording")
+                self._schedule_tab_lock_return(multi_index)
+                return
         if self.tabs.widget(index) is self.camera_settings_widget:
             print("[tab-switch] to Tab2: stopping MultiView")
             try:
@@ -263,8 +272,37 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             QTimer.singleShot(0, self.multi_view_widget.refresh_and_resume)
-        elif self.tabs.widget(index) is self.multi_view_widget:
-            self.multi_view_widget.refresh_channels()
+
+    def set_tabs_locked(self, locked: bool) -> None:
+        self._tabs_locked = locked
+        tab1_index = self.tabs.indexOf(self.channel_manager_widget)
+        tab2_index = self.tabs.indexOf(self.camera_settings_widget)
+        tab3_index = self.tabs.indexOf(self.multi_view_widget)
+        if tab1_index != -1:
+            self.tabs.setTabEnabled(tab1_index, not locked)
+        if tab2_index != -1:
+            self.tabs.setTabEnabled(tab2_index, not locked)
+        if tab3_index != -1:
+            self.tabs.setTabEnabled(tab3_index, True)
+        if locked:
+            self.statusBar().showMessage("Tabs locked during recording")
+            if tab3_index != -1 and self.tabs.currentIndex() != tab3_index:
+                self._schedule_tab_lock_return(tab3_index)
+        else:
+            self.statusBar().showMessage("Ready")
+
+    def _schedule_tab_lock_return(self, tab3_index: int) -> None:
+        if self._tab_lock_revert_pending:
+            return
+        self._tab_lock_revert_pending = True
+
+        def _return():
+            try:
+                self.tabs.setCurrentIndex(tab3_index)
+            finally:
+                self._tab_lock_revert_pending = False
+
+        QTimer.singleShot(0, _return)
 
     def onCloseDevice(self):
         if self.grabber.is_streaming:
