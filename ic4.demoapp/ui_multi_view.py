@@ -7,9 +7,14 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFormLayout,
+    QFrame,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
+    QSpinBox,
     QStackedLayout,
     QVBoxLayout,
     QWidget,
@@ -60,6 +65,30 @@ class MultiViewWidget(QWidget):
         controls_layout.addWidget(self.lock_tabs_checkbox)
         controls_layout.addStretch(1)
         main_layout.addLayout(controls_layout)
+        recording_group = QGroupBox("Recording (GUI only)", self)
+        recording_layout = QFormLayout(recording_group)
+        self.rec_start_after_sec = QSpinBox(recording_group)
+        self.rec_start_after_sec.setRange(0, 86400)
+        self.rec_start_after_sec.setSuffix(" sec")
+        self.rec_start_after_sec.setValue(0)
+        self.rec_duration_sec = QSpinBox(recording_group)
+        self.rec_duration_sec.setRange(1, 86400)
+        self.rec_duration_sec.setSuffix(" sec")
+        self.rec_duration_sec.setValue(10)
+        recording_layout.addRow("Start after", self.rec_start_after_sec)
+        recording_layout.addRow("Duration", self.rec_duration_sec)
+        buttons_layout = QHBoxLayout()
+        self.rec_start_button = QPushButton("Start", recording_group)
+        self.rec_stop_button = QPushButton("Stop", recording_group)
+        buttons_layout.addWidget(self.rec_start_button)
+        buttons_layout.addWidget(self.rec_stop_button)
+        buttons_layout.addStretch(1)
+        recording_layout.addRow(buttons_layout)
+        main_layout.addWidget(recording_group)
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        main_layout.addWidget(separator)
         grid = QGridLayout()
         main_layout.addLayout(grid, 1)
 
