@@ -40,6 +40,7 @@ class _SlotListener(ic4.QueueSinkListener):
 
 class MultiViewWidget(QWidget):
     tabs_lock_changed = Signal(bool)
+    _recording_state_changed = Signal(object, str)  # RecordingState, message
 
     def __init__(self, registry: ChannelRegistry, resolver, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -51,7 +52,8 @@ class MultiViewWidget(QWidget):
         self._ptp_timer.setInterval(1000)
         self._ptp_timer.timeout.connect(self._update_ptp_all)
         self._recording = False
-        self._recording_controller = RecordingController(on_state_changed=self._on_recording_state_changed)
+        self._recording_state_changed.connect(self._update_recording_ui)
+        self._recording_controller = RecordingController(on_state_changed=self._emit_recording_state_changed)
         self._build_ui()
         self.refresh_channels()
 
@@ -514,10 +516,10 @@ class MultiViewWidget(QWidget):
         # 録画スレッド開始
         self._recording_controller.start()
 
-    def _on_recording_state_changed(self, state: RecordingState, message: str) -> None:
-        """RecordingControllerからの状態変更コールバック（別スレッドから呼ばれる可能性あり）"""
-        # QTimerを使ってメインスレッドで実行
-        QTimer.singleShot(0, lambda: self._update_recording_ui(state, message))
+    def _emit_recording_state_changed(self, state: RecordingState, message: str) -> None:
+        """RecordingControllerからの状態変更コールバック（別スレッドから呼ばれる）"""
+        # Qt Signalを使ってメインスレッドで実行（スレッドセーフ）
+        self._recording_state_changed.emit(state, message)
 
     def _update_recording_ui(self, state: RecordingState, message: str) -> None:
         """録画UIを更新（メインスレッドで実行）"""
