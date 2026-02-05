@@ -5,11 +5,11 @@ from PySide6.QtWidgets import QApplication
 
 from mainwindow import MainWindow
 
-def demoapp_main():
+def main():
     with ic4.Library.init_context():
         app = QApplication()
-        app.setApplicationName("ic4-demoapp")
-        app.setApplicationDisplayName("IC4 Demo Application")
+        app.setApplicationName("synchroCap")
+        app.setApplicationDisplayName("SynchroCap")
         app.setStyle("fusion")
 
         w = MainWindow()
@@ -18,4 +18,4 @@ def demoapp_main():
         app.exec()
 
 if __name__ == "__main__":
-    demoapp_main()
+    main()
