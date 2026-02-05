@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 import imagingcontrol4 as ic4
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QStackedLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from channel_registry import ChannelEntry, ChannelRegistry
 from ui_channel_manager import ChannelManagerWidget
+from recording_controller import RecordingController, RecordingState
 
 
 class _SlotListener(ic4.QueueSinkListener):
@@ -49,6 +51,7 @@ class MultiViewWidget(QWidget):
         self._ptp_timer.setInterval(1000)
         self._ptp_timer.timeout.connect(self._update_ptp_all)
         self._recording = False
+        self._recording_controller = RecordingController(on_state_changed=self._on_recording_state_changed)
         self._build_ui()
         self.refresh_channels()
 
@@ -65,21 +68,26 @@ class MultiViewWidget(QWidget):
         controls_layout.addWidget(self.lock_tabs_checkbox)
         controls_layout.addStretch(1)
         main_layout.addLayout(controls_layout)
-        recording_group = QGroupBox("Recording (GUI only)", self)
+        recording_group = QGroupBox("Recording", self)
         recording_layout = QFormLayout(recording_group)
         self.rec_start_after_sec = QSpinBox(recording_group)
-        self.rec_start_after_sec.setRange(0, 86400)
+        self.rec_start_after_sec.setRange(1, 86400)
         self.rec_start_after_sec.setSuffix(" sec")
-        self.rec_start_after_sec.setValue(0)
+        self.rec_start_after_sec.setValue(8)
         self.rec_duration_sec = QSpinBox(recording_group)
         self.rec_duration_sec.setRange(1, 86400)
         self.rec_duration_sec.setSuffix(" sec")
-        self.rec_duration_sec.setValue(10)
+        self.rec_duration_sec.setValue(30)
         recording_layout.addRow("Start after", self.rec_start_after_sec)
         recording_layout.addRow("Duration", self.rec_duration_sec)
+        self.rec_status_label = QLabel("Ready", recording_group)
+        self.rec_status_label.setStyleSheet("font-weight: bold;")
+        recording_layout.addRow("Status", self.rec_status_label)
         buttons_layout = QHBoxLayout()
         self.rec_start_button = QPushButton("Start", recording_group)
+        self.rec_start_button.clicked.connect(self._on_start_recording)
         self.rec_stop_button = QPushButton("Stop", recording_group)
+        self.rec_stop_button.setEnabled(False)  # 本フェーズでは無効
         buttons_layout.addWidget(self.rec_start_button)
         buttons_layout.addWidget(self.rec_stop_button)
         buttons_layout.addStretch(1)
@@ -453,3 +461,89 @@ class MultiViewWidget(QWidget):
     @staticmethod
     def _log_ptp(slot_index: int, message: str) -> None:
         print(f"[ptp][slot{slot_index + 1}] {message}")
+
+    # -------------------------------------------------------------------------
+    # 録画制御
+    # -------------------------------------------------------------------------
+
+    def _on_start_recording(self) -> None:
+        """録画開始ボタンのクリックハンドラ"""
+        # 有効なカメラがあるスロットを収集
+        active_slots = [
+            slot for slot in self.slots
+            if slot.get("channel_id") is not None
+            and isinstance(slot.get("grabber"), ic4.Grabber)
+            and slot["grabber"].is_device_valid
+        ]
+
+        if not active_slots:
+            QMessageBox.warning(
+                self,
+                "No Cameras",
+                "No cameras are connected. Please select cameras first.",
+            )
+            return
+
+        start_delay_s = self.rec_start_after_sec.value()
+        duration_s = self.rec_duration_sec.value()
+
+        # UI無効化
+        self._set_recording_ui_enabled(False)
+
+        # タブロック
+        self._recording = True
+        self.tabs_lock_changed.emit(True)
+
+        # 録画準備開始
+        success = self._recording_controller.prepare(
+            slots=active_slots,
+            start_delay_s=float(start_delay_s),
+            duration_s=float(duration_s),
+        )
+
+        if not success:
+            error_msg = self._recording_controller.get_error_message()
+            QMessageBox.critical(
+                self,
+                "Recording Failed",
+                f"Failed to start recording:\n{error_msg}",
+            )
+            self._on_recording_finished()
+            return
+
+        # 録画スレッド開始
+        self._recording_controller.start()
+
+    def _on_recording_state_changed(self, state: RecordingState, message: str) -> None:
+        """RecordingControllerからの状態変更コールバック（別スレッドから呼ばれる可能性あり）"""
+        # QTimerを使ってメインスレッドで実行
+        QTimer.singleShot(0, lambda: self._update_recording_ui(state, message))
+
+    def _update_recording_ui(self, state: RecordingState, message: str) -> None:
+        """録画UIを更新（メインスレッドで実行）"""
+        self.rec_status_label.setText(message)
+
+        if state == RecordingState.IDLE:
+            self._on_recording_finished()
+        elif state == RecordingState.ERROR:
+            self._on_recording_finished()
+
+    def _on_recording_finished(self) -> None:
+        """録画終了時の処理"""
+        self._recording = False
+        self.tabs_lock_changed.emit(False)
+        self._set_recording_ui_enabled(True)
+
+        # プレビュー再開
+        self.resume_selected()
+
+    def _set_recording_ui_enabled(self, enabled: bool) -> None:
+        """録画関連UIの有効/無効を切り替え"""
+        self.rec_start_after_sec.setEnabled(enabled)
+        self.rec_duration_sec.setEnabled(enabled)
+        self.rec_start_button.setEnabled(enabled)
+        self.recording_checkbox.setEnabled(enabled)
+        self.lock_tabs_checkbox.setEnabled(enabled)
+
+        if enabled:
+            self.rec_status_label.setText("Ready")
