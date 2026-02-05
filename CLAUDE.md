@@ -38,9 +38,13 @@ SynchroCap/
 │       ├── 02_single_view/
 │       └── ...
 ├── docs/
+│   ├── BACKLOG.md            # 案件一覧
+│   ├── CHANGELOG.md          # リリース履歴
+│   ├── architecture.md       # アーキテクチャ概要
 │   ├── requirements.md       # 要件定義
 │   ├── feature_design.md     # 機能設計書
-│   └── investigation.md      # 調査記録
+│   └── issues/               # 案件フォルダ
+│       └── bug-001-.../      # 個別案件
 └── output/                   # 録画出力先
 ```
 
@@ -75,3 +79,34 @@ python main.py
 - **1カメラ = 1スレッド**: 録画は各カメラごとに独立したスレッドで実行
 - **PTP Slave必須**: 全カメラがPTP Slaveになることが録画開始の前提条件
 - **DEFER_ACQUISITION_START**: 複数カメラの同時開始に必須
+
+## ドキュメント管理ルール
+
+### 案件管理
+
+- **BACKLOG.md**: 全案件（バグ・機能追加）の一覧とステータス
+- **CHANGELOG.md**: リリース履歴
+- **issues/**: 個別案件のフォルダ
+
+### 案件フォルダ構成
+
+```
+docs/issues/
+└── {type}-{number}-{slug}/    # 例: bug-001-xxx, feat-002-yyy
+    ├── README.md              # 概要、ステータス、再現手順
+    └── investigation.md       # 調査メモ
+```
+
+### 運用フロー
+
+1. **新規案件**: issues/に案件フォルダを作成、BACKLOG.mdに追加
+2. **調査中**: investigation.mdに調査メモを記録
+3. **完了時**:
+   - README.mdのStatusをClosedに変更
+   - BACKLOG.mdのステータスを更新
+   - CHANGELOG.mdに完了内容を記録
+
+### 命名規則
+
+- フォルダ名は英語で統一（例: `bug-001-cannot-restart-recording`）
+- 案件フォルダは完了後も削除・移動しない
