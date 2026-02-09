@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 import imagingcontrol4 as ic4
+from ui_camera_settings import CameraSettingsStore
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -42,7 +44,7 @@ class MultiViewWidget(QWidget):
     tabs_lock_changed = Signal(bool)
     _recording_state_changed = Signal(object, str)  # RecordingState, message
 
-    def __init__(self, registry: ChannelRegistry, resolver, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, registry: ChannelRegistry, resolver, appdata_directory: str = "", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.registry = registry
         self.resolver = resolver
@@ -54,6 +56,9 @@ class MultiViewWidget(QWidget):
         self._recording = False
         self._recording_state_changed.connect(self._update_recording_ui)
         self._recording_controller = RecordingController(on_state_changed=self._emit_recording_state_changed)
+        # Camera Settings Store for trigger_interval_fps
+        settings_file = os.path.join(appdata_directory, "camera_settings.json") if appdata_directory else ""
+        self._settings_store = CameraSettingsStore(settings_file) if settings_file else None
         self._build_ui()
         self.refresh_channels()
 
@@ -471,12 +476,30 @@ class MultiViewWidget(QWidget):
     def _on_start_recording(self) -> None:
         """録画開始ボタンのクリックハンドラ"""
         # 有効なカメラがあるスロットを収集
-        active_slots = [
-            slot for slot in self.slots
-            if slot.get("channel_id") is not None
-            and isinstance(slot.get("grabber"), ic4.Grabber)
-            and slot["grabber"].is_device_valid
-        ]
+        active_slots = []
+        for slot in self.slots:
+            if slot.get("channel_id") is None:
+                continue
+            if not isinstance(slot.get("grabber"), ic4.Grabber):
+                continue
+            if not slot["grabber"].is_device_valid:
+                continue
+            # trigger_interval_fpsを取得（Camera Settingから、なければデフォルト50.0）
+            slot_info = dict(slot)
+            trigger_interval_fps = 50.0
+            if self._settings_store is not None:
+                try:
+                    grabber = slot["grabber"]
+                    device_info = grabber.device_info
+                    serial = getattr(device_info, "serial", None) or getattr(device_info, "serial_number", "")
+                    if serial:
+                        record = self._settings_store.get(str(serial), "")
+                        if record and "trigger_interval_fps" in record:
+                            trigger_interval_fps = float(record["trigger_interval_fps"])
+                except Exception:
+                    pass
+            slot_info["trigger_interval_fps"] = trigger_interval_fps
+            active_slots.append(slot_info)
 
         if not active_slots:
             QMessageBox.warning(

@@ -48,6 +48,7 @@ class RecordingSlot:
     width: int = 0
     height: int = 0
     fps: float = 0.0
+    trigger_interval_fps: float = 50.0  # Action Scheduler用トリガー間隔
     delta_ns: int = 0  # ホストとの時刻オフセット
     # CSV関連
     csv_path: Optional[Path] = None
@@ -175,9 +176,11 @@ class RecordingController:
             except ic4.IC4Exception:
                 continue
 
+            trigger_interval_fps = slot.get("trigger_interval_fps", 50.0)
             recording_slot = RecordingSlot(
                 serial=str(serial),
                 grabber=grabber,
+                trigger_interval_fps=float(trigger_interval_fps),
             )
             self._slots.append(recording_slot)
 
@@ -361,7 +364,7 @@ class RecordingController:
 
         # Action Scheduler設定（これは必須）
         camera_target_ns = self._host_target_ns + slot.delta_ns
-        interval_us = round(1_000_000 / slot.fps)
+        interval_us = round(1_000_000 / slot.trigger_interval_fps)
 
         try:
             prop_map.set_value(ic4.PropId.ACTION_SCHEDULER_CANCEL, True)

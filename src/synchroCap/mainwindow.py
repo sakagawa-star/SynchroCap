@@ -27,11 +27,11 @@ class MainWindow(QMainWindow):
         QMainWindow.__init__(self)
 
         # Make sure the %appdata%/demoapp directory exists
-        appdata_directory = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-        QDir(appdata_directory).mkpath(".")
+        self.appdata_directory = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        QDir(self.appdata_directory).mkpath(".")
 
-        self.device_file = appdata_directory + "/device.json"
-        self.channels_file = appdata_directory + "/channels.json"
+        self.device_file = self.appdata_directory + "/device.json"
+        self.channels_file = self.appdata_directory + "/channels.json"
 
         self.channel_registry = ChannelRegistry(self.channels_file)
         try:
@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
         self.multi_view_widget = MultiViewWidget(
             registry=self.channel_registry,
             resolver=self.device_resolver,
+            appdata_directory=self.appdata_directory,
             parent=self,
         )
         self.multi_view_widget.tabs_lock_changed.connect(self.set_tabs_locked)

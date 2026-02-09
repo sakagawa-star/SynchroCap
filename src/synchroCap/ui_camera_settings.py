@@ -184,6 +184,7 @@ class CameraSettingsWidget(QWidget):
         self._last_fps_count = 0
         self._fixed_resolutions = [(1920, 1200), (1920, 1080)]
         self._fixed_pixel_formats = self._build_fixed_pixel_formats()
+        self._current_trigger_interval_fps: Optional[float] = 50.0
 
         class PreviewListener(ic4.QueueSinkListener):
             def sink_connected(self, sink: ic4.QueueSink, image_type: ic4.ImageType, min_buffers_required: int) -> bool:
@@ -258,6 +259,10 @@ class CameraSettingsWidget(QWidget):
         self.frame_rate_button = QPushButton("Not supported", self.settings_group)
         self.frame_rate_button.clicked.connect(self._on_change_frame_rate_clicked)
         settings_layout.addRow("FrameRate (fps)", self.frame_rate_button)
+
+        self.trigger_interval_button = QPushButton("50.00", self.settings_group)
+        self.trigger_interval_button.clicked.connect(self._on_change_trigger_interval_clicked)
+        settings_layout.addRow("Trigger Interval (fps)", self.trigger_interval_button)
 
         awb_divider = QFrame(self.settings_group)
         awb_divider.setFrameShape(QFrame.HLine)
@@ -644,6 +649,13 @@ class CameraSettingsWidget(QWidget):
             self.frame_rate_button.setToolTip("")
             self.frame_rate_button.setEnabled(self._controls_enabled)
 
+        if self._current_trigger_interval_fps is not None:
+            self.trigger_interval_button.setText(f"{self._current_trigger_interval_fps:.2f}")
+            self.trigger_interval_button.setEnabled(self._controls_enabled)
+        else:
+            self.trigger_interval_button.setText("50.00")
+            self.trigger_interval_button.setEnabled(self._controls_enabled)
+
         self._apply_exposure_ui()
         self._apply_gain_ui()
         self._apply_awb_ui()
@@ -915,6 +927,12 @@ class CameraSettingsWidget(QWidget):
                         prop_map.set_value(prop_id, float(frame_rate))
                     except Exception as exc:
                         self._log_persist_apply_failed("FrameRate", frame_rate, exc)
+
+            trigger_interval_fps = record.get("trigger_interval_fps")
+            if trigger_interval_fps is not None:
+                self._current_trigger_interval_fps = float(trigger_interval_fps)
+            else:
+                self._current_trigger_interval_fps = 50.0  # デフォルト値にリセット
 
             balance_white_auto = record.get("balance_white_auto")
             if balance_white_auto is not None:
@@ -2015,6 +2033,77 @@ class CameraSettingsWidget(QWidget):
             return None
 
         return value
+
+    def _prompt_trigger_interval(self, current_value: float) -> Optional[float]:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Set Trigger Interval")
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("Trigger Interval (fps)", dlg))
+        line_edit = QLineEdit(dlg)
+        validator = QDoubleValidator(0.0, 1000.0, 2, line_edit)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        line_edit.setValidator(validator)
+        line_edit.setText(f"{current_value:.2f}")
+        layout.addWidget(line_edit)
+
+        interval_label = QLabel(f"= {round(1_000_000 / current_value)} µs", dlg)
+        layout.addWidget(interval_label)
+
+        def update_interval(text: str) -> None:
+            try:
+                fps = float(text)
+                if fps > 0:
+                    interval_label.setText(f"= {round(1_000_000 / fps)} µs")
+                else:
+                    interval_label.setText("= N/A")
+            except ValueError:
+                interval_label.setText("= N/A")
+
+        line_edit.textChanged.connect(update_interval)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dlg,
+        )
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setEnabled(bool(line_edit.text()))
+        line_edit.textChanged.connect(lambda text: ok_button.setEnabled(bool(text)))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        try:
+            value = float(line_edit.text())
+        except ValueError:
+            return None
+
+        if value <= 0:
+            QMessageBox.warning(self, "", "Trigger Interval must be greater than 0.", QMessageBox.StandardButton.Ok)
+            return None
+
+        return value
+
+    def _on_change_trigger_interval_clicked(self) -> None:
+        if self._updating_controls or not self._controls_enabled:
+            return
+        if self._current_trigger_interval_fps is None:
+            self._current_trigger_interval_fps = 50.0
+
+        new_value = self._prompt_trigger_interval(self._current_trigger_interval_fps)
+        if new_value is None:
+            return
+
+        self._current_trigger_interval_fps = new_value
+        self._refresh_frequent_settings_ui()
+        self._persist_update({"trigger_interval_fps": float(new_value)})
+
+    def get_trigger_interval_fps(self) -> Optional[float]:
+        """録画時に呼び出される"""
+        return self._current_trigger_interval_fps
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         self._controls_enabled = enabled
