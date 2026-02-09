@@ -13,18 +13,18 @@ os.makedirs(OUT_DIR, exist_ok=True)
 DEFAULT_SETTINGS = {
     "WIDTH": 1920,                 # 画像幅（px）
     "HEIGHT": 1080,                # 画像高さ（px）
-    "FPS": 30,                    # フレームレート
+    "FPS": 50,                    # フレームレート
     "PIXEL_FORMAT": "BayerGR8",   # カラーフォーマット
     "TRIGGER_MODE": "On",         # トリガーモード
     "GAIN_AUTO": "Continuous",    # ゲインオート　ON
-    "EXPOSURE_TIME": 16335,       # 露光時間（単位はµs）
+    "EXPOSURE_TIME":  1000,       # 露光時間（単位はµs）
     "EXPOSURE_AUTO": "Off",       # 露光時間の自動OFF
     "PTP_ENABLE": True,           # PTPでカメラ時刻同期ON
 }
 
 # Action Scheduler：開始時刻と間隔
 START_DELAY_SEC      = 10.0       # 未来開始の遅延（秒）
-ACTION_INTERVAL_SEC  = 33.333     # ここは“ミリ秒”として使う（後で µs に変換）
+ACTION_INTERVAL_SEC  = 33         # ここは"ミリ秒"として使う（後で µs に変換）
 USE_ACTION_SCHEDULER = True       # True: 同期撮影を使う ソフトウェアトリガー・ハードウェアトリガーの場合はFalseにしてください
 
 # 4台ぶんの書き出し完了待ち用フラグ
@@ -154,9 +154,56 @@ class CamListener(ic4.QueueSinkListener):
         print(f"{self.cam_name} CSV flush #{self.csv_flush_count}")
 
 
+# ===== PIXEL_FORMAT確認 =====
+def verify_pixel_format(grabber: ic4.Grabber, cam_label: str, expected: str) -> bool:
+    """PIXEL_FORMATの設定値を読み戻して確認"""
+    mp = grabber.device_property_map
+    try:
+        actual = mp.get_value_str(ic4.PropId.PIXEL_FORMAT)
+        if actual == expected:
+            print(f"[{cam_label}] PIXEL_FORMAT: set={expected}, readback={actual}, OK")
+            return True
+        else:
+            print(f"[{cam_label}] PIXEL_FORMAT: set={expected}, readback={actual}, MISMATCH!")
+            return False
+    except Exception as e:
+        print(f"[{cam_label}] PIXEL_FORMAT: readback error={e}")
+        return False
+
+
+# ===== WIDTH/HEIGHT確認 =====
+def verify_resolution(grabber: ic4.Grabber, cam_label: str, expected_width: int, expected_height: int) -> bool:
+    """WIDTH/HEIGHTの設定値を読み戻して確認"""
+    mp = grabber.device_property_map
+    ok = True
+    try:
+        actual_width = mp.get_value_int(ic4.PropId.WIDTH)
+        if actual_width == expected_width:
+            print(f"[{cam_label}] WIDTH: set={expected_width}, readback={actual_width}, OK")
+        else:
+            print(f"[{cam_label}] WIDTH: set={expected_width}, readback={actual_width}, MISMATCH!")
+            ok = False
+    except Exception as e:
+        print(f"[{cam_label}] WIDTH: readback error={e}")
+        ok = False
+
+    try:
+        actual_height = mp.get_value_int(ic4.PropId.HEIGHT)
+        if actual_height == expected_height:
+            print(f"[{cam_label}] HEIGHT: set={expected_height}, readback={actual_height}, OK")
+        else:
+            print(f"[{cam_label}] HEIGHT: set={expected_height}, readback={actual_height}, MISMATCH!")
+            ok = False
+    except Exception as e:
+        print(f"[{cam_label}] HEIGHT: readback error={e}")
+        ok = False
+
+    return ok
+
+
 # ===== 基本プロパティ設定 =====
 def apply_basic_properties(grabber: ic4.Grabber):
-    
+
     #解像度・FPS・露光・ゲイン・カラーフォーマットなどの基本設定
     mp = grabber.device_property_map
     mp.set_value(ic4.PropId.WIDTH,  int(DEFAULT_SETTINGS["WIDTH"]))
@@ -201,7 +248,7 @@ def get_device_time_ns(grabber: ic4.Grabber) -> int:
 # ===== アクションスケジューラ設定 =====
 def schedule_action(grabber: ic4.Grabber, start_ns: int, interval_us: int, cam_label: str = "cam"):
     """
-    “未来の開始時刻（単位：ns）”と“発火間隔（単位：µs）”をセットし、COMMITでアクションスケジューラを開始。
+    "未来の開始時刻（単位：ns）"と"発火間隔（単位：µs）"をセットし、COMMITでアクションスケジューラを開始。
     """
     mp = grabber.device_property_map
 
@@ -318,6 +365,12 @@ def main():
     for g in grabbers:
         apply_basic_properties(g)
 
+    # プロパティ確認
+    for i, g in enumerate(grabbers):
+        cam_label = f"cam{i+1}"
+        verify_pixel_format(g, cam_label, DEFAULT_SETTINGS["PIXEL_FORMAT"])
+        verify_resolution(g, cam_label, DEFAULT_SETTINGS["WIDTH"], DEFAULT_SETTINGS["HEIGHT"])
+
     # PTP 同期安定待ち（構成によっては 5〜10秒程度に延ばす）
     print("PTP同期中…数秒待機"); time.sleep(3)
 
@@ -332,7 +385,7 @@ def main():
         listeners.append(listener)
         sinks.append(sink)
 
-    # Action Scheduler 起動（必ず“未来の時刻”を指定）
+    # Action Scheduler 起動（必ず"未来の時刻"を指定）
     # ハードウェアトリガーの場合は使用しない
     if USE_ACTION_SCHEDULER:
         ref_ns = get_device_time_ns(grabbers[0]) or time.time_ns()  # 取得不可ならホスト時刻で代用

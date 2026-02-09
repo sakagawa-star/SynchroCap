@@ -7,6 +7,7 @@ PTP同期された複数カメラの同時録画を管理する。
 
 from __future__ import annotations
 
+import csv
 import os
 import subprocess
 import threading
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, Dict, List, Optional
+from typing import Any, BinaryIO, Callable, Dict, List, Optional, TextIO
 
 import imagingcontrol4 as ic4
 
@@ -48,6 +49,11 @@ class RecordingSlot:
     height: int = 0
     fps: float = 0.0
     delta_ns: int = 0  # ホストとの時刻オフセット
+    # CSV関連
+    csv_path: Optional[Path] = None
+    csv_file: Optional[TextIO] = None
+    csv_writer: Optional[Any] = None
+    csv_buffer: List[List] = field(default_factory=list)
 
 
 class _RecordingQueueSinkListener(ic4.QueueSinkListener):
@@ -86,6 +92,7 @@ class RecordingController:
     PTP_POLL_INTERVAL_S = 1.0
     QUEUE_BUFFER_COUNT = 500
     FFMPEG_FLUSH_INTERVAL = 30
+    CSV_FLUSH_INTERVAL = 10
 
     def __init__(self, on_state_changed: Optional[Callable[[RecordingState, str], None]] = None):
         """
@@ -335,21 +342,20 @@ class RecordingController:
     def _configure_action_scheduler(self, slot: RecordingSlot) -> bool:
         """Action SchedulerとTrigger設定"""
         prop_map = slot.grabber.device_property_map
-        drv_map = slot.grabber.driver_property_map
 
-        # Trigger設定（失敗しても警告のみで続行 - 参照実装準拠）
+        # Trigger設定（device_property_mapを使用）
         try:
-            drv_map.set_value(ic4.PropId.TRIGGER_SELECTOR, "FrameStart")
+            prop_map.set_value(ic4.PropId.TRIGGER_SELECTOR, "FrameStart")
         except ic4.IC4Exception as e:
             self._log(f"[{slot.serial}] Warning: failed to set TRIGGER_SELECTOR: {e}")
 
         try:
-            drv_map.set_value(ic4.PropId.TRIGGER_SOURCE, "Action0")
+            prop_map.set_value(ic4.PropId.TRIGGER_SOURCE, "Action0")
         except ic4.IC4Exception as e:
             self._log(f"[{slot.serial}] Warning: failed to set TRIGGER_SOURCE: {e}")
 
         try:
-            drv_map.set_value(ic4.PropId.TRIGGER_MODE, "On")
+            prop_map.set_value(ic4.PropId.TRIGGER_MODE, "On")
         except ic4.IC4Exception as e:
             self._log(f"[{slot.serial}] Warning: failed to set TRIGGER_MODE: {e}")
 
@@ -392,6 +398,18 @@ class RecordingController:
         for slot in self._slots:
             # 出力パス設定
             slot.output_path = self._output_dir / f"cam{slot.serial}.mp4"
+
+            # CSV初期化
+            slot.csv_path = self._output_dir / f"cam{slot.serial}.csv"
+            try:
+                slot.csv_file = open(slot.csv_path, "w", newline="", encoding="utf-8")
+                slot.csv_writer = csv.writer(slot.csv_file)
+                slot.csv_writer.writerow(["frame_number", "device_timestamp_ns"])
+                slot.csv_buffer = []
+            except Exception as e:
+                self._log(f"[{slot.serial}] Warning: failed to open CSV: {e}")
+                slot.csv_file = None
+                slot.csv_writer = None
 
             # ffmpeg起動
             ffmpeg_cmd = self._build_ffmpeg_command(slot)
@@ -492,6 +510,21 @@ class RecordingController:
                 time.sleep(0.001)
                 continue
 
+            # CSV記録
+            if slot.csv_writer is not None:
+                try:
+                    md = buf.meta_data
+                    frame_no = f"{md.device_frame_number:05}"
+                    timestamp = md.device_timestamp_ns
+                    slot.csv_buffer.append([frame_no, timestamp])
+
+                    if len(slot.csv_buffer) >= self.CSV_FLUSH_INTERVAL:
+                        slot.csv_writer.writerows(slot.csv_buffer)
+                        slot.csv_buffer.clear()
+                        slot.csv_file.flush()
+                except Exception as e:
+                    self._log(f"[{serial}] Warning: CSV write error: {e}")
+
             try:
                 arr = buf.numpy_wrap()
                 output_stream.write(arr.tobytes())
@@ -538,6 +571,17 @@ class RecordingController:
     def _cleanup(self) -> None:
         """リソースのクリーンアップ"""
         for slot in self._slots:
+            # CSV終了処理
+            if slot.csv_file is not None:
+                try:
+                    if slot.csv_writer is not None and slot.csv_buffer:
+                        slot.csv_writer.writerows(slot.csv_buffer)
+                        slot.csv_buffer.clear()
+                    slot.csv_file.flush()
+                    slot.csv_file.close()
+                except Exception as e:
+                    self._log(f"[{slot.serial}] Warning: CSV close error: {e}")
+
             # ffmpeg終了
             if slot.ffmpeg_proc is not None:
                 try:
