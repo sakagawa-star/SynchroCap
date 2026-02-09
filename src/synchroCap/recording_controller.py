@@ -609,7 +609,7 @@ class RecordingController:
         if self._slots:
             self._log("=== Recording Report ===")
             for slot in self._slots:
-                expected = int(self._duration_s * slot.fps)
+                expected = int(self._duration_s * slot.trigger_interval_fps)
                 delta = slot.frame_count - expected
                 self._log(f"  [{slot.serial}] frames={slot.frame_count}, expected={expected}, delta={delta:+d}")
 
