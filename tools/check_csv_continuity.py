@@ -10,7 +10,7 @@ import sys
 
 
 DEFAULT_FILES = ["cam1.csv", "cam2.csv", "cam3.csv", "cam4.csv"]
-TOLERANCE_MS = 2.0
+TOLERANCE_MS = 0.1
 
 
 class CsvReadError(Exception):

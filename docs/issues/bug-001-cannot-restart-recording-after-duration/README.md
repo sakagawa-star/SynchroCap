@@ -1,6 +1,6 @@
 # bug-001: Duration経過後に録画再開できない
 
-## Status: Open
+## Status: Closed (2026-02-05)
 
 ## Summary
 
@@ -38,7 +38,12 @@ Duration経過後：
 
 ## Root Cause Analysis
 
-（調査中）
+**原因特定済み**
+
+`_on_recording_state_changed()` で使用している `QTimer.singleShot()` が、
+非Qtスレッド（Python threading.Thread）から呼び出されているため、タイマーイベントが発火しない。
+
+詳細は [investigation.md](investigation.md) を参照。
 
 ## Related
 

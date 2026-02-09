@@ -27,5 +27,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - 個別カメラの設定変更
   - プロパティダイアログ
 
-### Known Issues
+### Fixed
 - [bug-001](issues/bug-001-cannot-restart-recording-after-duration/) Duration経過後に録画再開できない
+  - 原因: 非QtスレッドからのQTimer.singleShot()呼び出し
+  - 修正: Qt Signalによるスレッド間通信に変更
+
+### Known Issues
+- [bug-002](issues/bug-002-start-delay-included-in-recording-duration/) Start after遅延が録画時間に含まれる (Frozen)
+- [bug-003](issues/bug-003-trigger-properties-not-found/) Triggerプロパティが見つからない
+
+### Added
+- [feat-001](issues/feat-001-csv-frame-timestamp-logging/) フレームタイムスタンプのCSV記録
+  - 録画中の各フレームのframe_number, device_timestamp_nsをCSVに記録
+  - 動画と同じディレクトリに `cam{serial}.csv` を出力
