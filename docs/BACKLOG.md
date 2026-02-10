@@ -4,7 +4,8 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| [feat-002](issues/feat-002-raw-file-recording/) | Feature | ヘッダ付きRawファイル形式での録画対応 | Suspended |
+| [feat-002](issues/feat-002-raw-file-recording/) | Feature | ヘッダ付きRawファイル形式での録画対応 | Frozen |
+| [feat-003](issues/feat-003-raw-file-toolkit/) | Feature | Rawファイル検証・変換ツール | Frozen |
 
 ## Closed
 
