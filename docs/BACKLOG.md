@@ -4,6 +4,7 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
+| [feat-002](issues/feat-002-raw-file-recording/) | Feature | ヘッダ付きRawファイル形式での録画対応 | Suspended |
 
 ## Closed
 
@@ -16,3 +17,4 @@
 | [inv-001](issues/inv-001-pixelformat-trigger-investigation/) | Investigation | PixelFormat/Trigger設定の検証 | 2026-02-09 |
 | [bug-004](issues/bug-004-framerate-not-applied-with-action-scheduler/) | Bug | フレームレート設定が反映されない場合がある | 2026-02-09 |
 | [bug-005](issues/bug-005-incorrect-expected-frames-in-report/) | Bug | Recording Reportのexpected値が間違っている | 2026-02-09 |
+| [bug-006](issues/bug-006-incorrect-mp4-framerate/) | Bug | MP4ファイルのフレームレートが正しくない | 2026-02-10 |

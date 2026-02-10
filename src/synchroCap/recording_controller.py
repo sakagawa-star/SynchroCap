@@ -468,7 +468,7 @@ class RecordingController:
             "-f", "rawvideo",
             "-pix_fmt", "bayer_grbg8",
             "-s", f"{slot.width}x{slot.height}",
-            "-framerate", f"{slot.fps}",
+            "-framerate", f"{slot.trigger_interval_fps}",
             "-i", "-",
             "-vf", "format=yuv420p",
             "-c:v", "hevc_nvenc",
