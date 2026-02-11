@@ -71,15 +71,65 @@ python s13_raw_tool.py sync-check <session_dir> [--threshold-ms 1.0]
 
 ### Step 2: Rawフレームビューワー (実機テスト完了 2026-02-11)
 
-- Rawファイルから指定フレームをデベイヤーしてカラー画像表示
-- OpenCV (`cv2.imshow`) によるビューワー
-- `s` キーでPNG保存、`q` キーで終了
+#### サブコマンド: `view`
+
+Rawファイルから指定フレームをデベイヤー（BayerGR8→BGR）してカラー画像表示する。
+
+```
+python s13_raw_tool.py view <raw_file> [--frame N]
+```
+
+- `--frame N`: 表示するフレーム番号（0始まり、デフォルト: 0）
+- キー操作: `s` でPNG保存、`q` または `ESC` で終了
+- PNG保存先: Rawファイルと同じディレクトリに `{stem}_frame{N:06d}.png`
+- 依存: opencv-python
+
+使用例:
+```bash
+# 先頭フレームを表示
+python s13_raw_tool.py view captures/20260211-123456/cam05520125_000000.raw
+
+# 50番目のフレームを表示
+python s13_raw_tool.py view captures/20260211-123456/cam05520125_000000.raw --frame 50
+```
 
 ### Step 3: Raw→MP4エンコード (実機テスト完了 2026-02-11)
 
-- セッション内の指定カメラのRawファイル群からMP4を生成
+#### サブコマンド: `encode`
+
+セッション内の指定カメラのRawファイル群からMP4を生成する。
+
+```
+python s13_raw_tool.py encode <session_dir> --serial <serial> [--fps 30]
+```
+
+- `--serial`: 対象カメラのシリアル番号（必須）
+- `--fps`: MP4のフレームレート（デフォルト: 30）
+- 出力先: `<session_dir>/cam{serial}.mp4`（自動命名、既存ファイルがある場合はエラー）
 - タイムスタンプベースのフレーム選択（固定fps、フレーム落ち補完）
 - ffmpeg (hevc_nvenc) によるエンコード
+- 異なるシリアル番号であれば複数プロセスで並列実行可能
+
+使用例:
+```bash
+# 30fpsでMP4生成
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520125
+
+# 60fpsで生成
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520125 --fps 60
+
+# 4カメラ分を並列実行
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520125 &
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520126 &
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520128 &
+python s13_raw_tool.py encode captures/20260211-123456 --serial 05520129 &
+```
+
+### Step 4: encodeサブコマンドの統計表示改善 (実機テスト完了 2026-02-11)
+
+- encodeの出力メッセージで duplicated/skipped の原因が判別できない問題を改善
+- Raw実効fpsの表示追加
+- 状況判定ノートの付与（timestamp jitter / downsampled / upsampled / WARNING）
 
 ## 凍結理由 (2026-02-10) → 再開 (2026-02-10)
 
@@ -95,5 +145,7 @@ feat-002で作成したRawデータとCSVファイルの保存ディレクトリ
 - [design_step2.md](design_step2.md) - 機能設計書（Step 2）
 - [requirements_step3.md](requirements_step3.md) - 要求仕様書（Step 3）
 - [design_step3.md](design_step3.md) - 機能設計書（Step 3）
+- [requirements_step4.md](requirements_step4.md) - 要求仕様書（Step 4）
+- [design_step4.md](design_step4.md) - 機能設計書（Step 4）
 - [feat-002](../feat-002-raw-file-recording/) - ヘッダ付きRawファイル形式での録画対応
 - [feat-002 design.md](../feat-002-raw-file-recording/design.md) - SRAWフォーマット仕様

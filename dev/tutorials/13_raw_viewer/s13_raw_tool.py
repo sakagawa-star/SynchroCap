@@ -769,6 +769,37 @@ def encode_frames(
     return duplicated
 
 
+def _classify_frame_plan(
+    raw_fps: float,
+    mp4_fps: int,
+    duplicated: int,
+    skipped: int,
+    total_mp4_frames: int,
+) -> str:
+    """duplicated/skipped の状況を判定してノート文字列を返す"""
+    if duplicated == 0 and skipped == 0:
+        return "exact match"
+
+    total_mismatch = duplicated + skipped
+    mismatch_ratio = total_mismatch / total_mp4_frames if total_mp4_frames > 0 else 0.0
+    fps_diff_ratio = abs(raw_fps - mp4_fps) / mp4_fps if mp4_fps > 0 else 0.0
+    fps_similar = fps_diff_ratio < 0.10
+
+    if fps_similar and mismatch_ratio < 0.01:
+        return "timestamp jitter"
+
+    if raw_fps > mp4_fps and skipped > duplicated:
+        return f"downsampled from {raw_fps:.1f} fps"
+
+    if raw_fps < mp4_fps and duplicated > skipped:
+        return f"upsampled from {raw_fps:.1f} fps"
+
+    if mismatch_ratio >= 0.01:
+        return "WARNING: significant mismatch"
+
+    return "timestamp jitter"
+
+
 def cmd_encode(args: argparse.Namespace) -> int:
     session_dir = args.session_dir
     serial = args.serial
@@ -815,10 +846,12 @@ def cmd_encode(args: argparse.Namespace) -> int:
     t_first = locations[0].timestamp_ns
     t_last = locations[-1].timestamp_ns
     time_span_s = (t_last - t_first) / 1_000_000_000
+    raw_effective_fps = (len(locations) - 1) / time_span_s if time_span_s > 0 else 0.0
 
     unique_in_plan = len(set(plan))
     duplicated = len(plan) - unique_in_plan
     skipped = len(locations) - unique_in_plan
+    note = _classify_frame_plan(raw_effective_fps, fps, duplicated, skipped, len(plan))
 
     # File summary
     file_frame_counts: List[Tuple[str, int]] = []
@@ -840,8 +873,9 @@ def cmd_encode(args: argparse.Namespace) -> int:
     print(f"  Raw files: {raw_desc}")
     print(f"  Total raw frames: {len(locations)}")
     print(f"  Time span: {time_span_s:.3f} s")
+    print(f"  Raw effective fps: {raw_effective_fps:.1f}")
     print(f"  MP4 fps: {fps}")
-    print(f"  MP4 frames: {len(plan)} ({duplicated} duplicated, {skipped} skipped)")
+    print(f"  MP4 frames: {len(plan)} ({duplicated} duplicated, {skipped} skipped -- {note})")
     print(f"  Output: {output_path}")
     print(f"  Encoding...")
 
