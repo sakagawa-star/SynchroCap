@@ -1,13 +1,14 @@
-"""SynchroCap Raw file validation tool.
+"""SynchroCap Raw file toolkit.
 
-Provides subcommands for inspecting, validating and viewing SRAW format files
-produced by the SynchroCap recording pipeline.
+Provides subcommands for inspecting, validating, viewing and encoding SRAW
+format files produced by the SynchroCap recording pipeline.
 
 Usage:
     python s13_raw_tool.py dump <raw_file> [--all]
     python s13_raw_tool.py validate <session_dir>
     python s13_raw_tool.py sync-check <session_dir> [--threshold-ms 1.0]
     python s13_raw_tool.py view <raw_file> [--frame N]
+    python s13_raw_tool.py encode <session_dir> --serial <serial> [--fps 30]
 """
 
 import argparse
@@ -16,6 +17,7 @@ import glob
 import os
 import re
 import struct
+import subprocess
 import sys
 from typing import BinaryIO, Dict, Iterator, List, NamedTuple, Optional, Tuple
 
@@ -83,6 +85,14 @@ class SessionFiles(NamedTuple):
     serial: str
     raw_files: List[str]
     csv_path: Optional[str]
+
+
+class FrameLocation(NamedTuple):
+    raw_path: str
+    file_offset: int
+    payload_size: int
+    frame_index: int
+    timestamp_ns: int
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +644,244 @@ def cmd_view(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: encode
+# ---------------------------------------------------------------------------
+
+
+def scan_frame_locations(raw_files: List[str]) -> Tuple[FileHeader, List[FrameLocation]]:
+    """Scan all raw files and collect FrameLocations. Returns (FileHeader, locations)."""
+    file_header: Optional[FileHeader] = None
+    locations: List[FrameLocation] = []
+
+    for raw_path in raw_files:
+        with open(raw_path, "rb") as f:
+            fh = read_file_header(f)
+            if file_header is None:
+                file_header = fh
+            for fi in iter_frame_infos(f):
+                locations.append(FrameLocation(
+                    raw_path=raw_path,
+                    file_offset=fi.file_offset,
+                    payload_size=fi.payload_size,
+                    frame_index=fi.frame_index,
+                    timestamp_ns=fi.timestamp_ns,
+                ))
+
+    if file_header is None:
+        raise ValueError("No raw files to scan")
+    return file_header, locations
+
+
+def build_frame_plan(locations: List[FrameLocation], fps: int) -> List[int]:
+    """Build frame selection plan. Returns list of indices into locations."""
+    if not locations:
+        return []
+
+    t_first = locations[0].timestamp_ns
+    t_last = locations[-1].timestamp_ns
+    interval_ns = 1_000_000_000 / fps
+
+    plan: List[int] = []
+    raw_idx = 0
+    mp4_frame = 0
+
+    while True:
+        t_target = t_first + mp4_frame * interval_ns
+        if t_target > t_last:
+            plan.append(raw_idx)
+            break
+
+        # Advance raw_idx to the floor frame for t_target
+        while (raw_idx + 1 < len(locations)
+               and locations[raw_idx + 1].timestamp_ns <= t_target):
+            raw_idx += 1
+
+        plan.append(raw_idx)
+        mp4_frame += 1
+
+    return plan
+
+
+def build_ffmpeg_encode_command(
+    width: int, height: int, fps: int, output_path: str,
+) -> List[str]:
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-loglevel", "error",
+        "-f", "rawvideo",
+        "-pix_fmt", "bayer_grbg8",
+        "-s", f"{width}x{height}",
+        "-framerate", f"{fps}",
+        "-i", "-",
+        "-vf", "format=yuv420p",
+        "-c:v", "hevc_nvenc",
+        "-b:v", "2200k",
+        "-maxrate", "2200k",
+        "-bufsize", "4400k",
+        "-preset", "p4",
+        output_path,
+    ]
+
+
+def encode_frames(
+    plan: List[int],
+    locations: List[FrameLocation],
+    ffmpeg_stdin: BinaryIO,
+) -> int:
+    """Pipe selected payloads to ffmpeg. Returns duplicated frame count."""
+    last_payload: Optional[bytes] = None
+    last_raw_idx = -1
+    current_file: Optional[BinaryIO] = None
+    current_path: Optional[str] = None
+    duplicated = 0
+
+    try:
+        for raw_idx in plan:
+            if raw_idx == last_raw_idx and last_payload is not None:
+                ffmpeg_stdin.write(last_payload)
+                duplicated += 1
+                continue
+
+            loc = locations[raw_idx]
+            if current_path != loc.raw_path:
+                if current_file is not None:
+                    current_file.close()
+                current_file = open(loc.raw_path, "rb")
+                current_path = loc.raw_path
+
+            current_file.seek(loc.file_offset + FRAME_HEADER_SIZE)
+            payload = current_file.read(loc.payload_size)
+            if len(payload) < loc.payload_size:
+                raise IOError(
+                    f"Unexpected EOF reading payload at frame_index={loc.frame_index} "
+                    f"in {os.path.basename(loc.raw_path)}"
+                )
+
+            ffmpeg_stdin.write(payload)
+            last_payload = payload
+            last_raw_idx = raw_idx
+    finally:
+        if current_file is not None:
+            current_file.close()
+
+    return duplicated
+
+
+def cmd_encode(args: argparse.Namespace) -> int:
+    session_dir = args.session_dir
+    serial = args.serial
+    fps = args.fps
+
+    if not os.path.isdir(session_dir):
+        print(f"Error: directory not found: {session_dir}", file=sys.stderr)
+        return EXIT_ERROR
+
+    session_map = discover_session_files(session_dir)
+    if serial not in session_map or not session_map[serial].raw_files:
+        print(f"Error: no raw files found for serial {serial} in {session_dir}",
+              file=sys.stderr)
+        return EXIT_ERROR
+
+    sf = session_map[serial]
+    output_path = os.path.join(session_dir, f"cam{serial}.mp4")
+
+    if os.path.exists(output_path):
+        print(f"Error: output file already exists: {output_path}", file=sys.stderr)
+        return EXIT_ERROR
+
+    # Pass 1: Scan headers
+    try:
+        file_hdr, locations = scan_frame_locations(sf.raw_files)
+    except (ValueError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if file_hdr.pixel_format != 0:
+        pf_name = PIXEL_FORMAT_NAMES.get(file_hdr.pixel_format, "Unknown")
+        print(f"Error: unsupported pixel format: {pf_name} ({file_hdr.pixel_format}). "
+              f"Only BayerGR8 (0) is supported.", file=sys.stderr)
+        return EXIT_ERROR
+
+    if not locations:
+        print("Error: no frames found in raw files", file=sys.stderr)
+        return EXIT_ERROR
+
+    # Build frame plan
+    plan = build_frame_plan(locations, fps)
+
+    # Statistics
+    t_first = locations[0].timestamp_ns
+    t_last = locations[-1].timestamp_ns
+    time_span_s = (t_last - t_first) / 1_000_000_000
+
+    unique_in_plan = len(set(plan))
+    duplicated = len(plan) - unique_in_plan
+    skipped = len(locations) - unique_in_plan
+
+    # File summary
+    file_frame_counts: List[Tuple[str, int]] = []
+    current_file = None
+    count = 0
+    for loc in locations:
+        if loc.raw_path != current_file:
+            if current_file is not None:
+                file_frame_counts.append((os.path.basename(current_file), count))
+            current_file = loc.raw_path
+            count = 0
+        count += 1
+    if current_file is not None:
+        file_frame_counts.append((os.path.basename(current_file), count))
+
+    raw_desc = ", ".join(f"{name} ({c} frames)" for name, c in file_frame_counts)
+
+    print(f"=== Encode: {session_dir} cam{serial} ===")
+    print(f"  Raw files: {raw_desc}")
+    print(f"  Total raw frames: {len(locations)}")
+    print(f"  Time span: {time_span_s:.3f} s")
+    print(f"  MP4 fps: {fps}")
+    print(f"  MP4 frames: {len(plan)} ({duplicated} duplicated, {skipped} skipped)")
+    print(f"  Output: {output_path}")
+    print(f"  Encoding...")
+
+    # Pass 2: Encode
+    cmd = build_ffmpeg_encode_command(file_hdr.width, file_hdr.height, fps, output_path)
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        print("Error: ffmpeg not found. Please install ffmpeg.", file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as e:
+        print(f"Error: failed to start ffmpeg: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    try:
+        encode_frames(plan, locations, proc.stdin)
+    except (IOError, BrokenPipeError) as e:
+        print(f"Error: encoding failed: {e}", file=sys.stderr)
+        proc.stdin.close()
+        proc.wait()
+        stderr_out = proc.stderr.read().decode(errors="replace").strip()
+        if stderr_out:
+            print(f"  ffmpeg stderr: {stderr_out}", file=sys.stderr)
+        return EXIT_FAIL
+
+    proc.stdin.close()
+    proc.wait()
+
+    if proc.returncode != 0:
+        stderr_out = proc.stderr.read().decode(errors="replace").strip()
+        print(f"Error: ffmpeg exited with code {proc.returncode}", file=sys.stderr)
+        if stderr_out:
+            print(f"  ffmpeg stderr: {stderr_out}", file=sys.stderr)
+        return EXIT_FAIL
+
+    print(f"  Done.")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # Main / CLI
 # ---------------------------------------------------------------------------
 
@@ -668,6 +916,14 @@ def main() -> int:
     view_parser.add_argument("--frame", type=int, default=0,
                              help="Frame index to view (default: 0)")
 
+    # encode
+    encode_parser = subparsers.add_parser("encode", help="Encode raw files to MP4")
+    encode_parser.add_argument("session_dir", help="Path to session directory")
+    encode_parser.add_argument("--serial", required=True,
+                               help="Camera serial number")
+    encode_parser.add_argument("--fps", type=int, default=30,
+                               help="MP4 frame rate (default: 30)")
+
     args = parser.parse_args()
 
     if args.command == "dump":
@@ -678,6 +934,8 @@ def main() -> int:
         return cmd_sync_check(args)
     elif args.command == "view":
         return cmd_view(args)
+    elif args.command == "encode":
+        return cmd_encode(args)
     else:
         parser.print_help()
         return EXIT_ERROR

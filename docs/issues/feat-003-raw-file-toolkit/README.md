@@ -1,6 +1,6 @@
 # feat-003: Rawファイル検証・変換ツール
 
-## Status: Open (Step 1, 2 完了 — Step 3は未着手)
+## Status: Closed (全Step完了 2026-02-11)
 
 ## Summary
 
@@ -75,9 +75,11 @@ python s13_raw_tool.py sync-check <session_dir> [--threshold-ms 1.0]
 - OpenCV (`cv2.imshow`) によるビューワー
 - `s` キーでPNG保存、`q` キーで終了
 
-### Step 3: MP4エンコード
+### Step 3: Raw→MP4エンコード (実機テスト完了 2026-02-11)
 
-- RawファイルからMP4ファイルへの変換
+- セッション内の指定カメラのRawファイル群からMP4を生成
+- タイムスタンプベースのフレーム選択（固定fps、フレーム落ち補完）
+- ffmpeg (hevc_nvenc) によるエンコード
 
 ## 凍結理由 (2026-02-10) → 再開 (2026-02-10)
 
@@ -91,5 +93,7 @@ feat-002で作成したRawデータとCSVファイルの保存ディレクトリ
 - [design.md](design.md) - 機能設計書（Step 1）
 - [requirements_step2.md](requirements_step2.md) - 要求仕様書（Step 2）
 - [design_step2.md](design_step2.md) - 機能設計書（Step 2）
+- [requirements_step3.md](requirements_step3.md) - 要求仕様書（Step 3）
+- [design_step3.md](design_step3.md) - 機能設計書（Step 3）
 - [feat-002](../feat-002-raw-file-recording/) - ヘッダ付きRawファイル形式での録画対応
 - [feat-002 design.md](../feat-002-raw-file-recording/design.md) - SRAWフォーマット仕様
