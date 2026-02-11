@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `view`: BayerGR8フレームをデベイヤーしてカラー画像表示・PNG保存
 - [feat-003](issues/feat-003-raw-file-toolkit/) Raw→MP4エンコード (Step 3)
   - `encode`: タイムスタンプベースのフレーム選択でRawからMP4を生成（hevc_nvenc）
+- [feat-002](issues/feat-002-raw-file-recording/) ヘッダ付きRawファイル形式での録画対応
+  - SRAWフォーマット（FileHeader + FrameHeader + Payload）によるRaw録画
+  - フレーム数ベースのファイル分割
+  - セッション単位のディレクトリ構造
 
 ## [v1.0.0] - 2026-02-05
 
