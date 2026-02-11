@@ -1,12 +1,13 @@
 """SynchroCap Raw file validation tool.
 
-Provides three subcommands for inspecting and validating SRAW format files
+Provides subcommands for inspecting, validating and viewing SRAW format files
 produced by the SynchroCap recording pipeline.
 
 Usage:
     python s13_raw_tool.py dump <raw_file> [--all]
     python s13_raw_tool.py validate <session_dir>
     python s13_raw_tool.py sync-check <session_dir> [--threshold-ms 1.0]
+    python s13_raw_tool.py view <raw_file> [--frame N]
 """
 
 import argparse
@@ -542,6 +543,97 @@ def cmd_sync_check(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: view
+# ---------------------------------------------------------------------------
+
+
+def read_frame_payload(f: BinaryIO, frame_index: int) -> Tuple[FrameHeader, bytes]:
+    """Seek to frame_index (0-based position in file) and return (FrameHeader, payload)."""
+    for i in range(frame_index):
+        fh = read_frame_header(f)
+        if fh is None:
+            raise ValueError(f"Frame {frame_index} out of range (file has {i} frames)")
+        f.seek(fh.payload_size, os.SEEK_CUR)
+    fh = read_frame_header(f)
+    if fh is None:
+        raise ValueError(f"Frame {frame_index} out of range (file has {frame_index} frames)")
+    payload = f.read(fh.payload_size)
+    if len(payload) < fh.payload_size:
+        raise ValueError(f"Unexpected EOF reading payload (got {len(payload)}, expected {fh.payload_size})")
+    return fh, payload
+
+
+def cmd_view(args: argparse.Namespace) -> int:
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        print("Error: opencv-python is required for the view command.\n"
+              "  Install with: pip install opencv-python", file=sys.stderr)
+        return EXIT_ERROR
+
+    raw_file = args.raw_file
+    frame_index = args.frame
+
+    if not os.path.isfile(raw_file):
+        print(f"Error: file not found: {raw_file}", file=sys.stderr)
+        return EXIT_ERROR
+
+    with open(raw_file, "rb") as f:
+        try:
+            file_hdr = read_file_header(f)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return EXIT_ERROR
+
+        if file_hdr.pixel_format != 0:
+            pf_name = PIXEL_FORMAT_NAMES.get(file_hdr.pixel_format, "Unknown")
+            print(f"Error: unsupported pixel format: {pf_name} ({file_hdr.pixel_format}). "
+                  f"Only BayerGR8 (0) is supported.", file=sys.stderr)
+            return EXIT_ERROR
+
+        try:
+            frame_hdr, payload = read_frame_payload(f, frame_index)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return EXIT_ERROR
+
+    # Decode BayerGR8 → BGR
+    bayer = np.frombuffer(payload, dtype=np.uint8).reshape((file_hdr.height, file_hdr.width))
+    bgr = cv2.cvtColor(bayer, cv2.COLOR_BayerGR2BGR)
+
+    # Console output
+    basename = os.path.basename(raw_file)
+    print(f"=== View: {basename} ===")
+    print(f"  FileHeader: {file_hdr.width}x{file_hdr.height} {PIXEL_FORMAT_NAMES[file_hdr.pixel_format]}")
+    print(f"  Frame: index={frame_hdr.frame_index}, timestamp_ns={frame_hdr.timestamp_ns}")
+    print(f"  Showing frame {frame_index} (press 's' to save, 'q' to quit)")
+
+    # PNG save path
+    stem = os.path.splitext(basename)[0]
+    png_name = f"{stem}_frame{frame_hdr.frame_index:06d}.png"
+    png_path = os.path.join(os.path.dirname(os.path.abspath(raw_file)), png_name)
+
+    # Show
+    window_name = f"SynchroCap Raw Viewer - {basename} [frame {frame_index}]"
+    cv2.imshow(window_name, bgr)
+
+    while True:
+        key = cv2.waitKey(0) & 0xFF
+        if key == ord('q') or key == 27:  # 'q' or ESC
+            break
+        elif key == ord('s'):
+            try:
+                cv2.imwrite(png_path, bgr)
+                print(f"  Saved: {png_path}")
+            except Exception as e:
+                print(f"  WARNING: Failed to save PNG: {e}", file=sys.stderr)
+
+    cv2.destroyAllWindows()
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # Main / CLI
 # ---------------------------------------------------------------------------
 
@@ -570,6 +662,12 @@ def main() -> int:
     sync_parser.add_argument("--threshold-ms", type=float, default=1.0,
                              help="Sync threshold in ms (default: 1.0)")
 
+    # view
+    view_parser = subparsers.add_parser("view", help="View a raw frame")
+    view_parser.add_argument("raw_file", help="Path to .raw file")
+    view_parser.add_argument("--frame", type=int, default=0,
+                             help="Frame index to view (default: 0)")
+
     args = parser.parse_args()
 
     if args.command == "dump":
@@ -578,6 +676,8 @@ def main() -> int:
         return cmd_validate(args)
     elif args.command == "sync-check":
         return cmd_sync_check(args)
+    elif args.command == "view":
+        return cmd_view(args)
     else:
         parser.print_help()
         return EXIT_ERROR

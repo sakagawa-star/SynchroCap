@@ -1,6 +1,6 @@
 # feat-003: Rawファイル検証・変換ツール
 
-## Status: Open (Step 1 完了 — Step 2以降は未着手)
+## Status: Open (Step 1, 2 完了 — Step 3は未着手)
 
 ## Summary
 
@@ -69,9 +69,11 @@ python s13_raw_tool.py sync-check <session_dir> [--threshold-ms 1.0]
 - 閾値（デフォルト: 1ms）を超えるフレームを報告
 - 統計情報: mean, max, p99 のカメラ間タイムスタンプ差
 
-### Step 2: 静止画切り出し
+### Step 2: Rawフレームビューワー (実装完了 2026-02-11)
 
-- Rawファイルから指定フレームを静止画として出力
+- Rawファイルから指定フレームをデベイヤーしてカラー画像表示
+- OpenCV (`cv2.imshow`) によるビューワー
+- `s` キーでPNG保存、`q` キーで終了
 
 ### Step 3: MP4エンコード
 
@@ -87,5 +89,7 @@ feat-002で作成したRawデータとCSVファイルの保存ディレクトリ
 
 - [requirements.md](requirements.md) - 要求仕様書（Step 1）
 - [design.md](design.md) - 機能設計書（Step 1）
+- [requirements_step2.md](requirements_step2.md) - 要求仕様書（Step 2）
+- [design_step2.md](design_step2.md) - 機能設計書（Step 2）
 - [feat-002](../feat-002-raw-file-recording/) - ヘッダ付きRawファイル形式での録画対応
 - [feat-002 design.md](../feat-002-raw-file-recording/design.md) - SRAWフォーマット仕様

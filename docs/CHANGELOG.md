@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `dump`: Rawファイルのヘッダ情報ダンプ表示
   - `validate`: セッション内Raw/CSVの整合性チェック (V1〜V8)
   - `sync-check`: カメラ間タイムスタンプ同期精度の確認
+- [feat-003](issues/feat-003-raw-file-toolkit/) Rawフレームビューワー (Step 2)
+  - `view`: BayerGR8フレームをデベイヤーしてカラー画像表示・PNG保存
 
 ## [v1.0.0] - 2026-02-05
 
