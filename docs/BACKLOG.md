@@ -4,12 +4,13 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| [feat-004](issues/feat-004-raw-recording-in-app/) | Feature | 本番アプリへのRaw形式録画機能追加 | Open |
+| (なし) | | | |
 
 ## Closed
 
 | ID | Type | Title | Resolved |
 |----|------|-------|----------|
+| [feat-004](issues/feat-004-raw-recording-in-app/) | Feature | 本番アプリへのRaw形式録画機能追加 | 2026-02-11 |
 | [feat-003](issues/feat-003-raw-file-toolkit/) | Feature | Rawファイル検証・変換ツール | 2026-02-11 |
 | [feat-002](issues/feat-002-raw-file-recording/) | Feature | ヘッダ付きRawファイル形式での録画対応 | 2026-02-11 |
 | [bug-001](issues/bug-001-cannot-restart-recording-after-duration/) | Bug | Duration経過後に録画再開できない | 2026-02-05 |

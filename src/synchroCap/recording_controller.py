@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import os
+import struct
 import subprocess
 import threading
 import time
@@ -19,6 +20,17 @@ from pathlib import Path
 from typing import Any, BinaryIO, Callable, Dict, List, Optional, TextIO
 
 import imagingcontrol4 as ic4
+
+
+# =============================================================================
+# SRAW file format constants
+# =============================================================================
+
+SRAW_MAGIC = b'SRAW'
+FRAM_MAGIC = b'FRAM'
+SRAW_VERSION = 1
+PIXEL_FORMAT_BAYER_GR8 = 0
+DEFAULT_FRAMES_PER_FILE = 1000
 
 
 # =============================================================================
@@ -33,6 +45,12 @@ class RecordingState(Enum):
     RECORDING = "recording"      # 録画中
     STOPPING = "stopping"        # 停止処理中
     ERROR = "error"              # エラー発生
+
+
+class OutputFormat(Enum):
+    """出力フォーマット"""
+    MP4 = "mp4"
+    RAW = "raw"
 
 
 @dataclass
@@ -55,6 +73,10 @@ class RecordingSlot:
     csv_file: Optional[TextIO] = None
     csv_writer: Optional[Any] = None
     csv_buffer: List[List] = field(default_factory=list)
+    # Raw録画関連
+    raw_file: Optional[BinaryIO] = None
+    raw_file_start_frame: int = 0
+    raw_files_created: List[str] = field(default_factory=list)
 
 
 class _RecordingQueueSinkListener(ic4.QueueSinkListener):
@@ -71,6 +93,52 @@ class _RecordingQueueSinkListener(ic4.QueueSinkListener):
     def frames_queued(self, sink: ic4.QueueSink) -> None:
         # フレーム処理は録画スレッドで行うため、ここでは何もしない
         pass
+
+
+# =============================================================================
+# SRAW ヘッダ書き込み関数
+# =============================================================================
+
+
+def _write_file_header(
+    file: BinaryIO,
+    serial: str,
+    recording_start_ns: int,
+    width: int,
+    height: int,
+    pixel_format: int,
+) -> None:
+    """SRAWファイルヘッダ (40 bytes) を書き込む"""
+    serial_bytes = serial.encode('ascii')[:15].ljust(16, b'\x00')
+    header = struct.pack(
+        '<4sI16sqHHHH',
+        SRAW_MAGIC,
+        SRAW_VERSION,
+        serial_bytes,
+        recording_start_ns,
+        width,
+        height,
+        pixel_format,
+        0,  # reserved
+    )
+    file.write(header)
+
+
+def _write_frame_header(
+    file: BinaryIO,
+    payload_size: int,
+    frame_index: int,
+    timestamp_ns: int,
+) -> None:
+    """SRAWフレームヘッダ (24 bytes) を書き込む"""
+    header = struct.pack(
+        '<4sIQq',
+        FRAM_MAGIC,
+        payload_size,
+        frame_index,
+        timestamp_ns,
+    )
+    file.write(header)
 
 
 # =============================================================================
@@ -93,6 +161,7 @@ class RecordingController:
     PTP_POLL_INTERVAL_S = 1.0
     QUEUE_BUFFER_COUNT = 500
     FFMPEG_FLUSH_INTERVAL = 30
+    RAW_FLUSH_INTERVAL = 30
     CSV_FLUSH_INTERVAL = 10
 
     def __init__(self, on_state_changed: Optional[Callable[[RecordingState, str], None]] = None):
@@ -109,6 +178,8 @@ class RecordingController:
         self._host_target_ns: int = 0
         self._on_state_changed = on_state_changed
         self._error_message: str = ""
+        self._output_format: OutputFormat = OutputFormat.MP4
+        self._frames_per_file: int = DEFAULT_FRAMES_PER_FILE
 
     # -------------------------------------------------------------------------
     # 公開メソッド
@@ -131,6 +202,8 @@ class RecordingController:
         slots: List[Dict[str, Any]],
         start_delay_s: float,
         duration_s: float,
+        output_format: OutputFormat = OutputFormat.MP4,
+        frames_per_file: int = DEFAULT_FRAMES_PER_FILE,
     ) -> bool:
         """
         録画準備を行う
@@ -139,6 +212,8 @@ class RecordingController:
             slots: MultiViewWidgetのスロット情報リスト
             start_delay_s: 開始遅延（秒）
             duration_s: 録画時間（秒）
+            output_format: 出力フォーマット（MP4 or RAW）
+            frames_per_file: Rawファイル1つあたりのフレーム数
 
         Returns:
             準備成功したかどうか
@@ -149,6 +224,8 @@ class RecordingController:
 
         self._start_delay_s = start_delay_s
         self._duration_s = duration_s
+        self._output_format = output_format
+        self._frames_per_file = frames_per_file
         self._slots = []
         self._threads = {}
         self._error_message = ""
@@ -397,12 +474,9 @@ class RecordingController:
     # -------------------------------------------------------------------------
 
     def _setup_recording(self) -> bool:
-        """ffmpeg起動と録画用sink準備"""
+        """録画用リソース準備（ffmpeg or Rawファイル + sink）"""
         for slot in self._slots:
-            # 出力パス設定
-            slot.output_path = self._output_dir / f"cam{slot.serial}.mp4"
-
-            # CSV初期化
+            # CSV初期化（MP4/Raw共通）
             slot.csv_path = self._output_dir / f"cam{slot.serial}.csv"
             try:
                 slot.csv_file = open(slot.csv_path, "w", newline="", encoding="utf-8")
@@ -414,36 +488,40 @@ class RecordingController:
                 slot.csv_file = None
                 slot.csv_writer = None
 
-            # ffmpeg起動
-            ffmpeg_cmd = self._build_ffmpeg_command(slot)
-            try:
-                slot.ffmpeg_proc = subprocess.Popen(
-                    ffmpeg_cmd,
-                    stdin=subprocess.PIPE,
-                )
-            except Exception as e:
-                self._set_error(f"Failed to start ffmpeg for {slot.serial}: {e}")
-                return False
+            if self._output_format == OutputFormat.MP4:
+                # MP4: 出力パス設定 + ffmpeg起動
+                slot.output_path = self._output_dir / f"cam{slot.serial}.mp4"
 
-            if slot.ffmpeg_proc.stdin is None:
-                self._set_error(f"ffmpeg stdin not available for {slot.serial}")
-                return False
+                ffmpeg_cmd = self._build_ffmpeg_command(slot)
+                try:
+                    slot.ffmpeg_proc = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdin=subprocess.PIPE,
+                    )
+                except Exception as e:
+                    self._set_error(f"Failed to start ffmpeg for {slot.serial}: {e}")
+                    return False
 
-            # プレビュー停止
+                if slot.ffmpeg_proc.stdin is None:
+                    self._set_error(f"ffmpeg stdin not available for {slot.serial}")
+                    return False
+            # Raw: ffmpegは起動しない（ファイルは_worker_raw内で動的に作成）
+
+            # プレビュー停止（MP4/Raw共通）
             try:
                 if slot.grabber.is_streaming:
                     slot.grabber.stream_stop()
             except ic4.IC4Exception as e:
                 self._log(f"[{slot.serial}] Warning: stream_stop failed: {e}")
 
-            # 録画用sink作成
+            # 録画用sink作成（MP4/Raw共通）
             slot.recording_listener = _RecordingQueueSinkListener()
             slot.recording_sink = ic4.QueueSink(
                 slot.recording_listener,
                 accepted_pixel_formats=[ic4.PixelFormat.BayerGR8],
             )
 
-            # stream_setup (DEFER)
+            # stream_setup (DEFER)（MP4/Raw共通）
             try:
                 slot.grabber.stream_setup(
                     slot.recording_sink,
@@ -454,7 +532,11 @@ class RecordingController:
                 self._set_error(f"Failed to setup recording stream for {slot.serial}: {e}")
                 return False
 
-            self._log(f"[{slot.serial}] Recording setup complete -> {slot.output_path}")
+            self._log(f"[{slot.serial}] Recording setup complete ({self._output_format.value})")
+
+        # Raw: ディスク使用量の推定表示
+        if self._output_format == OutputFormat.RAW:
+            self._log_raw_disk_estimate()
 
         return True
 
@@ -479,12 +561,35 @@ class RecordingController:
             str(slot.output_path),
         ]
 
+    def _log_raw_disk_estimate(self) -> None:
+        """Raw録画の推定ディスク使用量をログ出力"""
+        if not self._slots:
+            return
+        slot = self._slots[0]
+        bytes_per_frame = slot.width * slot.height  # BayerGR8: 1 byte/pixel
+        expected_frames = int(self._duration_s * slot.trigger_interval_fps)
+        per_cam_bytes = expected_frames * bytes_per_frame
+        total_bytes = per_cam_bytes * len(self._slots)
+        per_cam_gib = per_cam_bytes / (1024 ** 3)
+        total_gib = total_bytes / (1024 ** 3)
+        self._log(
+            f"[RAW] Estimated size: {per_cam_gib:.2f} GiB/camera, "
+            f"total {total_gib:.2f} GiB ({len(self._slots)} cameras)"
+        )
+
     # -------------------------------------------------------------------------
     # Phase 6: 録画スレッドと停止処理
     # -------------------------------------------------------------------------
 
     def _worker(self, slot: RecordingSlot) -> None:
-        """録画ワーカースレッド"""
+        """録画ワーカースレッド（フォーマットに応じて分岐）"""
+        if self._output_format == OutputFormat.RAW:
+            self._worker_raw(slot)
+        else:
+            self._worker_mp4(slot)
+
+    def _worker_mp4(self, slot: RecordingSlot) -> None:
+        """MP4録画ワーカースレッド"""
         serial = slot.serial
         grabber = slot.grabber
         sink = slot.recording_sink
@@ -560,6 +665,122 @@ class RecordingController:
 
         self._log(f"[{serial}] Recording finished: {slot.frame_count} frames")
 
+    def _worker_raw(self, slot: RecordingSlot) -> None:
+        """Raw録画ワーカースレッド"""
+        serial = slot.serial
+        grabber = slot.grabber
+        sink = slot.recording_sink
+
+        # acquisition開始
+        try:
+            grabber.acquisition_start()
+        except ic4.IC4Exception as e:
+            self._log(f"[{serial}] Failed to start acquisition: {e}")
+            return
+
+        end_time = time.monotonic() + self._start_delay_s + self._duration_s
+        slot.frame_count = 0
+        slot.raw_files_created = []
+
+        # フレーム取得ループ
+        while time.monotonic() < end_time:
+            buf = sink.try_pop_output_buffer()
+            if buf is None:
+                time.sleep(0.001)
+                continue
+
+            # CSV記録
+            if slot.csv_writer is not None:
+                try:
+                    md = buf.meta_data
+                    frame_no = f"{md.device_frame_number:05}"
+                    timestamp = md.device_timestamp_ns
+                    slot.csv_buffer.append([frame_no, timestamp])
+
+                    if len(slot.csv_buffer) >= self.CSV_FLUSH_INTERVAL:
+                        slot.csv_writer.writerows(slot.csv_buffer)
+                        slot.csv_buffer.clear()
+                        slot.csv_file.flush()
+                except Exception as e:
+                    self._log(f"[{serial}] Warning: CSV write error: {e}")
+
+            arr = buf.numpy_wrap()
+            payload = arr.tobytes()
+            payload_size = len(payload)
+            timestamp = buf.meta_data.device_timestamp_ns
+
+            # ファイル分割チェック
+            if slot.raw_file is None or (
+                self._frames_per_file > 0
+                and slot.frame_count > 0
+                and slot.frame_count % self._frames_per_file == 0
+            ):
+                # 現在のファイルをクローズ
+                if slot.raw_file is not None:
+                    try:
+                        slot.raw_file.flush()
+                        slot.raw_file.close()
+                    except Exception as e:
+                        self._log(f"[{serial}] Warning: failed to close raw file: {e}")
+
+                # 新しいファイルを開く
+                slot.raw_file_start_frame = slot.frame_count
+                raw_filename = f"cam{serial}_{slot.frame_count:06d}.raw"
+                raw_path = self._output_dir / raw_filename
+                try:
+                    slot.raw_file = open(raw_path, "wb")
+                    slot.raw_files_created.append(str(raw_path))
+                    self._log(f"[{serial}] New raw file: {raw_filename}")
+
+                    # FileHeader書き込み
+                    _write_file_header(
+                        slot.raw_file, serial, timestamp,
+                        slot.width, slot.height, PIXEL_FORMAT_BAYER_GR8,
+                    )
+                except OSError as e:
+                    self._log(f"[{serial}] Failed to open raw file {raw_filename}: {e}")
+                    buf.release()
+                    break
+
+            # FrameHeader + Payload書き込み
+            try:
+                _write_frame_header(slot.raw_file, payload_size, slot.frame_count, timestamp)
+                slot.raw_file.write(payload)
+                slot.frame_count += 1
+
+                if slot.frame_count % self.RAW_FLUSH_INTERVAL == 0:
+                    slot.raw_file.flush()
+            except OSError as e:
+                self._log(f"[{serial}] Write error: {e}")
+                buf.release()
+                break
+
+            buf.release()
+
+        # 停止処理: Rawファイルクローズ
+        if slot.raw_file is not None:
+            try:
+                slot.raw_file.flush()
+                slot.raw_file.close()
+            except Exception:
+                pass
+            slot.raw_file = None
+
+        try:
+            grabber.acquisition_stop()
+        except ic4.IC4Exception as e:
+            self._log(f"[{serial}] Warning: acquisition_stop failed: {e}")
+
+        try:
+            grabber.stream_stop()
+        except ic4.IC4Exception as e:
+            self._log(f"[{serial}] Warning: stream_stop failed: {e}")
+
+        self._log(
+            f"[{serial}] Recording finished: {slot.frame_count} frames, "
+            f"{len(slot.raw_files_created)} file(s)"
+        )
+
     def _monitor_completion(self) -> None:
         """録画完了を監視するスレッド"""
         # 全スレッドの終了を待機
@@ -574,7 +795,7 @@ class RecordingController:
     def _cleanup(self) -> None:
         """リソースのクリーンアップ"""
         for slot in self._slots:
-            # CSV終了処理
+            # CSV終了処理（MP4/Raw共通）
             if slot.csv_file is not None:
                 try:
                     if slot.csv_writer is not None and slot.csv_buffer:
@@ -585,19 +806,29 @@ class RecordingController:
                 except Exception as e:
                     self._log(f"[{slot.serial}] Warning: CSV close error: {e}")
 
-            # ffmpeg終了
-            if slot.ffmpeg_proc is not None:
-                try:
-                    if slot.ffmpeg_proc.stdin and not slot.ffmpeg_proc.stdin.closed:
-                        slot.ffmpeg_proc.stdin.close()
-                except Exception:
-                    pass
-                try:
-                    slot.ffmpeg_proc.wait(timeout=10)
-                except Exception:
-                    pass
+            if self._output_format == OutputFormat.MP4:
+                # ffmpeg終了
+                if slot.ffmpeg_proc is not None:
+                    try:
+                        if slot.ffmpeg_proc.stdin and not slot.ffmpeg_proc.stdin.closed:
+                            slot.ffmpeg_proc.stdin.close()
+                    except Exception:
+                        pass
+                    try:
+                        slot.ffmpeg_proc.wait(timeout=10)
+                    except Exception:
+                        pass
+            else:
+                # Raw: 安全策 — raw_fileが閉じられていなければ閉じる
+                if slot.raw_file is not None:
+                    try:
+                        slot.raw_file.flush()
+                        slot.raw_file.close()
+                    except Exception:
+                        pass
+                    slot.raw_file = None
 
-            # 保険的な停止処理
+            # 保険的な停止処理（MP4/Raw共通）
             try:
                 if slot.grabber.is_streaming:
                     slot.grabber.acquisition_stop()
@@ -605,7 +836,7 @@ class RecordingController:
             except ic4.IC4Exception:
                 pass
 
-        # レポート出力
+        # レポート出力（MP4/Raw共通）
         if self._slots:
             self._log("=== Recording Report ===")
             for slot in self._slots:

@@ -1,6 +1,6 @@
 # feat-004: 本番アプリへのRaw形式録画機能追加
 
-## Status: Open
+## Status: Closed (2026-02-11)
 
 ## Summary
 
@@ -31,25 +31,27 @@ Recording
 
 ## Steps
 
-### Step 1: 要件定義・設計
+### Step 1: 要件定義・設計 (完了)
 
 - 要求仕様書の作成
 - 機能設計書の作成
 
-### Step 2: 実装
+### Step 2: 実装 (完了)
 
 - GUI変更（Output Format切り替え）
 - 録画制御ロジックの変更
 - Raw形式録画パスの追加
 
-### Step 3: テスト
+### Step 3: テスト (実機テスト完了 2026-02-11)
 
 - MP4形式での録画が従来通り動作すること
 - Raw形式での録画が正常に動作すること
-- feat-003ツールでRawファイルを検証
+- feat-003ツールでRawファイルを検証（validate全項目PASS、encode正常動作確認）
 
 ## Related Documents
 
+- [requirements.md](requirements.md) - 要求仕様書
+- [design.md](design.md) - 機能設計書
 - [feat-002](../feat-002-raw-file-recording/) - ヘッダ付きRawファイル形式での録画対応（ミニマムアプリ）
 - [feat-002 design.md](../feat-002-raw-file-recording/design.md) - SRAWフォーマット仕様
 - [feat-003](../feat-003-raw-file-toolkit/) - Rawファイル検証・変換ツール

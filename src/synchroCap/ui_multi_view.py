@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QStackedLayout,
     QVBoxLayout,
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from channel_registry import ChannelEntry, ChannelRegistry
 from ui_channel_manager import ChannelManagerWidget
-from recording_controller import RecordingController, RecordingState
+from recording_controller import RecordingController, RecordingState, OutputFormat
 
 
 class _SlotListener(ic4.QueueSinkListener):
@@ -87,6 +88,24 @@ class MultiViewWidget(QWidget):
         self.rec_duration_sec.setValue(30)
         recording_layout.addRow("Start after", self.rec_start_after_sec)
         recording_layout.addRow("Duration", self.rec_duration_sec)
+        # Output Format ラジオボタン
+        format_layout = QHBoxLayout()
+        self.rec_format_mp4 = QRadioButton("MP4", recording_group)
+        self.rec_format_raw = QRadioButton("Raw", recording_group)
+        self.rec_format_mp4.setChecked(True)
+        format_layout.addWidget(self.rec_format_mp4)
+        format_layout.addWidget(self.rec_format_raw)
+        format_layout.addStretch(1)
+        recording_layout.addRow("Output Format", format_layout)
+        # Frames per file (Raw選択時のみ表示)
+        self.rec_frames_per_file = QSpinBox(recording_group)
+        self.rec_frames_per_file.setRange(100, 100000)
+        self.rec_frames_per_file.setValue(1000)
+        self.rec_frames_per_file_label = QLabel("Frames per file", recording_group)
+        recording_layout.addRow(self.rec_frames_per_file_label, self.rec_frames_per_file)
+        self.rec_frames_per_file_label.setVisible(False)
+        self.rec_frames_per_file.setVisible(False)
+        self.rec_format_mp4.toggled.connect(self._on_output_format_changed)
         self.rec_status_label = QLabel("Ready", recording_group)
         self.rec_status_label.setStyleSheet("font-weight: bold;")
         recording_layout.addRow("Status", self.rec_status_label)
@@ -237,6 +256,12 @@ class MultiViewWidget(QWidget):
 
     def _emit_tabs_lock(self) -> None:
         self.tabs_lock_changed.emit(self.is_tabs_locked())
+
+    def _on_output_format_changed(self, mp4_checked: bool) -> None:
+        """Output Format変更時のハンドラ"""
+        is_raw = not mp4_checked
+        self.rec_frames_per_file_label.setVisible(is_raw)
+        self.rec_frames_per_file.setVisible(is_raw)
 
     def _on_recording_toggled(self, checked: bool) -> None:
         self._recording = checked
@@ -511,6 +536,8 @@ class MultiViewWidget(QWidget):
 
         start_delay_s = self.rec_start_after_sec.value()
         duration_s = self.rec_duration_sec.value()
+        output_format = OutputFormat.RAW if self.rec_format_raw.isChecked() else OutputFormat.MP4
+        frames_per_file = self.rec_frames_per_file.value()
 
         # UI無効化
         self._set_recording_ui_enabled(False)
@@ -524,6 +551,8 @@ class MultiViewWidget(QWidget):
             slots=active_slots,
             start_delay_s=float(start_delay_s),
             duration_s=float(duration_s),
+            output_format=output_format,
+            frames_per_file=frames_per_file,
         )
 
         if not success:
@@ -569,6 +598,9 @@ class MultiViewWidget(QWidget):
         self.rec_start_button.setEnabled(enabled)
         self.recording_checkbox.setEnabled(enabled)
         self.lock_tabs_checkbox.setEnabled(enabled)
+        self.rec_format_mp4.setEnabled(enabled)
+        self.rec_format_raw.setEnabled(enabled)
+        self.rec_frames_per_file.setEnabled(enabled)
 
         if enabled:
             self.rec_status_label.setText("Ready")

@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `encode`: タイムスタンプベースのフレーム選択でRawからMP4を生成（hevc_nvenc）
 - [feat-003](issues/feat-003-raw-file-toolkit/) encode統計表示改善 (Step 4)
   - `encode`: Raw実効fps表示と duplicated/skipped 状況判定ノート追加
+- [feat-004](issues/feat-004-raw-recording-in-app/) 本番アプリへのRaw形式録画機能追加
+  - Output Format切り替えUI（MP4 / Raw）
+  - SRAWフォーマットによるRaw録画パス
+  - Frames per file設定（Raw選択時）
+  - ディスク使用量の事前見積もり表示
 - [feat-002](issues/feat-002-raw-file-recording/) ヘッダ付きRawファイル形式での録画対応
   - SRAWフォーマット（FileHeader + FrameHeader + Payload）によるRaw録画
   - フレーム数ベースのファイル分割
