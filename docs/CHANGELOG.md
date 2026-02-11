@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- [feat-003](issues/feat-003-raw-file-toolkit/) Rawファイル検証CLIツール (Step 1)
+  - `dump`: Rawファイルのヘッダ情報ダンプ表示
+  - `validate`: セッション内Raw/CSVの整合性チェック (V1〜V8)
+  - `sync-check`: カメラ間タイムスタンプ同期精度の確認
+
 ## [v1.0.0] - 2026-02-05
 
 ### Added
