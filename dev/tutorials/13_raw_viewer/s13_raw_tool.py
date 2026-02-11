@@ -785,7 +785,7 @@ def _classify_frame_plan(
     fps_diff_ratio = abs(raw_fps - mp4_fps) / mp4_fps if mp4_fps > 0 else 0.0
     fps_similar = fps_diff_ratio < 0.10
 
-    if fps_similar and mismatch_ratio < 0.01:
+    if fps_similar and mismatch_ratio < 0.02:
         return "timestamp jitter"
 
     if raw_fps > mp4_fps and skipped > duplicated:
@@ -794,7 +794,7 @@ def _classify_frame_plan(
     if raw_fps < mp4_fps and duplicated > skipped:
         return f"upsampled from {raw_fps:.1f} fps"
 
-    if mismatch_ratio >= 0.01:
+    if mismatch_ratio >= 0.02:
         return "WARNING: significant mismatch"
 
     return "timestamp jitter"

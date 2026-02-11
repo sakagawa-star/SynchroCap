@@ -90,7 +90,7 @@ def _classify_frame_plan(
     fps_diff_ratio = abs(raw_fps - mp4_fps) / mp4_fps if mp4_fps > 0 else 0.0
     fps_similar = fps_diff_ratio < 0.10  # 10%以内なら同等とみなす
 
-    if fps_similar and mismatch_ratio < 0.01:
+    if fps_similar and mismatch_ratio < 0.02:
         return "timestamp jitter"
 
     if raw_fps > mp4_fps and skipped > duplicated:
@@ -99,7 +99,7 @@ def _classify_frame_plan(
     if raw_fps < mp4_fps and duplicated > skipped:
         return f"upsampled from {raw_fps:.1f} fps"
 
-    if mismatch_ratio >= 0.01:
+    if mismatch_ratio >= 0.02:
         return "WARNING: significant mismatch"
 
     return "timestamp jitter"
@@ -110,10 +110,10 @@ def _classify_frame_plan(
 | 優先順 | 条件 | 返値 | 意味 |
 |--------|------|------|------|
 | 1 | duplicated + skipped == 0 | `exact match` | 完全一致 |
-| 2 | fps差 < 10% かつ mismatch < 1% | `timestamp jitter` | PTPジッタによる正常な微小ずれ |
+| 2 | fps差 < 10% かつ mismatch < 2% | `timestamp jitter` | PTPジッタによる正常な微小ずれ |
 | 3 | raw_fps > mp4_fps かつ skip > dup | `downsampled from X fps` | 高fpsからのダウンサンプリング |
 | 4 | raw_fps < mp4_fps かつ dup > skip | `upsampled from X fps` | 低fpsからのアップサンプリング |
-| 5 | mismatch >= 1% | `WARNING: significant mismatch` | 異常の可能性あり |
+| 5 | mismatch >= 2% | `WARNING: significant mismatch` | 異常の可能性あり |
 | 6 | その他 | `timestamp jitter` | フォールバック |
 
 ### 3.5 出力例
