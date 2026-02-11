@@ -4,6 +4,7 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
+| [feat-004](issues/feat-004-raw-recording-in-app/) | Feature | 本番アプリへのRaw形式録画機能追加 | Open |
 
 ## Closed
 
