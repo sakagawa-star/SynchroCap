@@ -28,6 +28,9 @@ from channel_registry import ChannelEntry, ChannelRegistry
 from ui_channel_manager import ChannelManagerWidget
 from recording_controller import RecordingController, RecordingState, OutputFormat
 
+MAX_SLOTS = 8
+GRID_COLUMNS = 4
+
 
 class _SlotListener(ic4.QueueSinkListener):
     def sink_connected(self, sink: ic4.QueueSink, image_type: ic4.ImageType, min_buffers_required: int) -> bool:
@@ -126,10 +129,10 @@ class MultiViewWidget(QWidget):
         grid = QGridLayout()
         main_layout.addLayout(grid, 1)
 
-        for index in range(4):
+        for index in range(MAX_SLOTS):
             slot = self._create_slot(index)
             self.slots.append(slot)
-            grid.addWidget(slot["container"], index // 2, index % 2)
+            grid.addWidget(slot["container"], index // GRID_COLUMNS, index % GRID_COLUMNS)
 
     def _create_slot(self, index: int) -> dict[str, object]:
         container = QWidget(self)

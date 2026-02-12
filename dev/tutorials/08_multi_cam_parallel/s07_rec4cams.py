@@ -500,7 +500,7 @@ def main() -> None:
     raw_mode = args.raw_output
     WIDTH, HEIGHT = 1920, 1080
     FRAME_RATE = 30.0
-    CAPTURE_DURATION = 60.0
+    CAPTURE_DURATION = 10.0
     EXPECTED_FRAMES = int(round(CAPTURE_DURATION * FRAME_RATE))
 
     ic4.Library.init()

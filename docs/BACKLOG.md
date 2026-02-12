@@ -10,6 +10,8 @@
 
 | ID | Type | Title | Resolved |
 |----|------|-------|----------|
+| [feat-006](issues/feat-006-8cam-multi-view/) | Feature | Multi Viewの8カメラ対応 | 2026-02-12 |
+| [feat-005](issues/feat-005-6cam-channel-manager/) | Feature | Channel Managerの6カメラ対応 | 2026-02-11 |
 | [feat-004](issues/feat-004-raw-recording-in-app/) | Feature | 本番アプリへのRaw形式録画機能追加 | 2026-02-11 |
 | [feat-003](issues/feat-003-raw-file-toolkit/) | Feature | Rawファイル検証・変換ツール | 2026-02-11 |
 | [feat-002](issues/feat-002-raw-file-recording/) | Feature | ヘッダ付きRawファイル形式での録画対応 | 2026-02-11 |
