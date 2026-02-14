@@ -15,6 +15,8 @@ PTP_STATUS_NAMES = ["PtpStatus", "GevIEEE1588Status"]
 MAX_WAIT_SEC = 30.0   # 収束待ち最大時間
 POLL_SEC = 0.5        # ポーリング間隔
 
+_use_sudo = False     # pmc に sudo が必要かどうか（ensure_pmc_access で決定）
+
 
 @dataclass
 class UbuntuPtpStatus:
@@ -72,10 +74,46 @@ def has_converged(statuses: list[str | None]) -> bool:
     return (s.count("Master") == 1) and (s.count("Slave") >= 1)
 
 
+def ensure_pmc_access() -> bool:
+    """pmc にアクセスできるか確認し、必要なら sudo 認証を行う。
+
+    Returns:
+        True: pmc にアクセス可能（sudo 有無問わず）
+        False: アクセス不可
+    """
+    global _use_sudo
+
+    # まず sudo なしで試す
+    test_cmd = [
+        "/usr/sbin/pmc", "-u", "-s", "/var/run/ptp4l",
+        "-b", "0", "-d", "0", "GET CURRENT_DATA_SET",
+    ]
+    try:
+        subprocess.run(
+            test_cmd, check=True, capture_output=True, text=True, timeout=5.0,
+        )
+        _use_sudo = False
+        return True
+    except (subprocess.CalledProcessError, PermissionError, OSError):
+        pass
+
+    # sudo が必要 — パスワード入力を促す
+    print("pmc へのアクセスに sudo が必要です。パスワードを入力してください。")
+    try:
+        result = subprocess.run(["sudo", "-v"], timeout=30.0)
+        if result.returncode != 0:
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+    _use_sudo = True
+    return True
+
+
 def run_pmc_command(arguments: list[str]) -> tuple[bool, str]:
     """UDS経由で pmc コマンドを呼び出し、成功フラグと標準出力（またはエラー文）を返す。"""
     client_socket = f"/tmp/pmc.{os.getuid()}.{os.getpid()}"
-    cmd = [
+    pmc_args = [
         "/usr/sbin/pmc",
         "-u",
         "-i",
@@ -88,6 +126,7 @@ def run_pmc_command(arguments: list[str]) -> tuple[bool, str]:
         "0",
         " ".join(arguments),
     ]
+    cmd = ["sudo"] + pmc_args if _use_sudo else pmc_args
     try:
         completed = subprocess.run(
             cmd,
@@ -204,6 +243,11 @@ def fetch_ubuntu_ptp_status() -> UbuntuPtpStatus:
 
 
 def main():
+    # pmc アクセス確認（必要なら sudo パスワード入力）
+    if not ensure_pmc_access():
+        print("⚠ pmc コマンドにアクセスできません。linuxptp のインストールと ptp4l の起動を確認してください。")
+        return
+
     devices = ic4.DeviceEnum.devices()
 
     if len(devices) < 2:
