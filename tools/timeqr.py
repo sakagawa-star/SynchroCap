@@ -1,5 +1,10 @@
+import os
 import time
 import cv2
+
+# OpenCV 内蔵 Qt が探すフォントディレクトリが存在しない場合、作成して警告を抑制
+_cv2_qt_fonts = os.path.join(os.path.dirname(cv2.__file__), "qt", "fonts")
+os.makedirs(_cv2_qt_fonts, exist_ok=True)
 import numpy as np
 from PIL import Image
 import qrcode
@@ -10,6 +15,9 @@ FRAME_PERIOD = 1.0 / FPS
 QR_VERSION = 3
 BOX_SIZE = 12
 BORDER = 2
+
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 600
 
 def make_qr_pil(data: str):
     qr = qrcode.QRCode(
@@ -30,7 +38,7 @@ def pil_to_cv(img_pil: Image.Image):
 
 def main():
     cv2.namedWindow("TimeQR", cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("TimeQR", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    cv2.resizeWindow("TimeQR", WINDOW_WIDTH, WINDOW_HEIGHT)
 
     start_perf = time.perf_counter()
     frame = 0
