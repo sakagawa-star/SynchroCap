@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- [feat-007](issues/feat-007-camera-settings-viewer/) Camera Settings Viewer (Tab4)
+  - 全カメラの設定値（Resolution, PixelFormat, FPS, Trigger, AWB, AE, AG）を一覧表示
+  - 全カメラ間の設定一致チェック（OK/NG）とサマリー表示
+  - 不一致セルの赤系背景色による視覚的強調
+  - 録画中はタブ無効化
 - [feat-003](issues/feat-003-raw-file-toolkit/) Rawファイル検証CLIツール (Step 1)
   - `dump`: Rawファイルのヘッダ情報ダンプ表示
   - `validate`: セッション内Raw/CSVの整合性チェック (V1〜V8)

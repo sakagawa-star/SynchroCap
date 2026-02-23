@@ -28,10 +28,13 @@ SynchroCap/
 │   └── synchroCap/           # メインアプリケーション
 │       ├── __init__.py
 │       ├── main.py           # エントリーポイント
-│       ├── mainwindow.py     # メインウィンドウ
-│       ├── ui_multi_view.py  # マルチビューUI・録画統合
+│       ├── mainwindow.py     # メインウィンドウ・タブ管理
+│       ├── ui_channel_manager.py    # Tab1: チャンネル管理
+│       ├── ui_camera_settings.py    # Tab2: 個別カメラ設定（読み書き）
+│       ├── ui_multi_view.py         # Tab3: マルチビューUI・録画統合
 │       ├── recording_controller.py  # 録画制御ロジック
-│       └── ...
+│       ├── channel_registry.py      # チャンネル登録管理
+│       └── device_resolver.py       # シリアル→DeviceInfo解決
 ├── dev/
 │   └── tutorials/            # チュートリアル・サンプルコード
 │       ├── 01_list_devices/
@@ -110,3 +113,7 @@ docs/issues/
 
 - フォルダ名は英語で統一（例: `bug-001-cannot-restart-recording`）
 - 案件フォルダは完了後も削除・移動しない
+
+## 現在進行中の案件
+
+なし

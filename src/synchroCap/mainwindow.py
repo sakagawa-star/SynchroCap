@@ -16,6 +16,7 @@ from channel_registry import ChannelRegistry
 import device_resolver
 from resourceselector import ResourceSelector
 from ui_camera_settings import CameraSettingsWidget
+from ui_camera_settings_viewer import CameraSettingsViewerWidget
 from ui_channel_manager import ChannelManagerWidget
 from ui_multi_view import MultiViewWidget
 
@@ -156,6 +157,13 @@ class MainWindow(QMainWindow):
         self.multi_view_widget.tabs_lock_changed.connect(self.set_tabs_locked)
         self.tabs.addTab(self.multi_view_widget, "Multi View")
 
+        self.camera_settings_viewer_widget = CameraSettingsViewerWidget(
+            registry=self.channel_registry,
+            resolver=self.device_resolver,
+            parent=self,
+        )
+        self.tabs.addTab(self.camera_settings_viewer_widget, "Camera Settings Viewer")
+
         self.tabs.currentChanged.connect(self.onTabChanged)
 
         self.video_widget = ic4.pyside6.DisplayWidget()
@@ -196,18 +204,32 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             QTimer.singleShot(0, self.multi_view_widget.refresh_and_resume)
+        elif self.tabs.widget(index) is self.camera_settings_viewer_widget:
+            print("[tab-switch] to Tab4: stopping other tabs")
+            try:
+                self.multi_view_widget.stop_all()
+            except Exception:
+                pass
+            try:
+                self.camera_settings_widget.stop_preview_only()
+            except Exception:
+                pass
+            QTimer.singleShot(0, self.camera_settings_viewer_widget.refresh)
 
     def set_tabs_locked(self, locked: bool) -> None:
         self._tabs_locked = locked
         tab1_index = self.tabs.indexOf(self.channel_manager_widget)
         tab2_index = self.tabs.indexOf(self.camera_settings_widget)
         tab3_index = self.tabs.indexOf(self.multi_view_widget)
+        tab4_index = self.tabs.indexOf(self.camera_settings_viewer_widget)
         if tab1_index != -1:
             self.tabs.setTabEnabled(tab1_index, not locked)
         if tab2_index != -1:
             self.tabs.setTabEnabled(tab2_index, not locked)
         if tab3_index != -1:
             self.tabs.setTabEnabled(tab3_index, True)
+        if tab4_index != -1:
+            self.tabs.setTabEnabled(tab4_index, not locked)
         if locked:
             self.statusBar().showMessage("Tabs locked during recording")
             if tab3_index != -1 and self.tabs.currentIndex() != tab3_index:

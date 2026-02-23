@@ -4,12 +4,12 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| (なし) | | | |
 
 ## Closed
 
 | ID | Type | Title | Resolved |
 |----|------|-------|----------|
+| [feat-007](issues/feat-007-camera-settings-viewer/) | Feature | Camera Settings Viewer (Tab4) | 2026-02-23 |
 | [feat-006](issues/feat-006-8cam-multi-view/) | Feature | Multi Viewの8カメラ対応 | 2026-02-12 |
 | [feat-005](issues/feat-005-6cam-channel-manager/) | Feature | Channel Managerの6カメラ対応 | 2026-02-11 |
 | [feat-004](issues/feat-004-raw-recording-in-app/) | Feature | 本番アプリへのRaw形式録画機能追加 | 2026-02-11 |
