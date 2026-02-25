@@ -117,3 +117,7 @@ docs/issues/
 ## 現在進行中の案件
 
 なし
+
+## 完了済み調査案件
+
+- **inv-002**: `device_timestamp_ns` の意味の切り分け → `tools/timestamp_test.py` (ソフトウェアトリガー + TIMESTAMP_LATCH 方式)

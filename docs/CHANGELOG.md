@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- [inv-002](issues/inv-002-device-timestamp-meaning/) device_timestamp_ns タイムスタンプ切り分け実験ツール
+  - ソフトウェアトリガー + TIMESTAMP_LATCH 方式で device_timestamp_ns の意味を判定
+  - `tools/timestamp_test.py` として独立スクリプトで提供
 - [feat-007](issues/feat-007-camera-settings-viewer/) Camera Settings Viewer (Tab4)
   - 全カメラの設定値（Resolution, PixelFormat, FPS, Trigger, AWB, AE, AG）を一覧表示
   - 全カメラ間の設定一致チェック（OK/NG）とサマリー表示

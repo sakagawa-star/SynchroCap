@@ -9,6 +9,7 @@
 
 | ID | Type | Title | Resolved |
 |----|------|-------|----------|
+| [inv-002](issues/inv-002-device-timestamp-meaning/) | Investigation | device_timestamp_ns の意味の切り分け | 2026-02-25 |
 | [feat-007](issues/feat-007-camera-settings-viewer/) | Feature | Camera Settings Viewer (Tab4) | 2026-02-23 |
 | [feat-006](issues/feat-006-8cam-multi-view/) | Feature | Multi Viewの8カメラ対応 | 2026-02-12 |
 | [feat-005](issues/feat-005-6cam-channel-manager/) | Feature | Channel Managerの6カメラ対応 | 2026-02-11 |
