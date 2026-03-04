@@ -48,6 +48,8 @@ SynchroCap/
 │   ├── feature_design.md     # 機能設計書
 │   └── issues/               # 案件フォルダ
 │       └── bug-001-.../      # 個別案件
+├── tests/                    # テストコード
+│   └── results/              # テスト結果保存先
 └── output/                   # 録画出力先
 ```
 
@@ -83,6 +85,45 @@ python main.py
 - **PTP Slave必須**: 全カメラがPTP Slaveになることが録画開始の前提条件
 - **DEFER_ACQUISITION_START**: 複数カメラの同時開始に必須
 
+## 開発方針
+
+- **シンプルな機能を一つずつ作り、積み重ねて目的を達成する**
+- 大きな機能を一度に作らない。小さく作って動作確認し、次の機能へ進む
+
+### 機能ごとの開発フロー
+
+各機能について、以下のフローを**厳守**する。**planモードは使わない**（通常モードで調査・計画を行う）。
+
+1. **案件作成** → `docs/issues/{type}-{number}-{slug}/` フォルダを作成し、`BACKLOG.md` に追加する
+2. **調査・計画** → 通常モードで既存コードを調査し、要求仕様書（`docs/REQUIREMENTS_STANDARD.md` 準拠）と機能設計書（`docs/DESIGN_STANDARD.md` 準拠）を作成する
+3. **ドキュメント保存** → 要求仕様書を `docs/issues/{案件フォルダ}/requirements.md`、機能設計書を `docs/issues/{案件フォルダ}/design.md` にファイル保存する。**保存が完了するまで実装に進んではならない**
+4. **レビュー（Subagent + 人）** → 保存されたドキュメントをSubagent（Agentツール）でレビューする。ユーザーも同時にレビューする。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
+5. **修正（必要な場合）** → レビューで問題があれば、再調査してドキュメントを更新する。**ステップ2〜4を問題がなくなるまで繰り返す**
+6. **引き継ぎ・/clear** → CLAUDE.mdの「現在進行中の案件」セクションを更新し、実装セッションに必要な情報を整える。その後ユーザーが `/clear` を実行
+7. **実装** → ドキュメント（要求仕様書・機能設計書・CLAUDE.md）を読んで実装
+
+### ドキュメント作成ルール
+
+- **実装前に必ず「要求仕様書」と「機能設計書」を作成し、案件フォルダにファイル保存すること**
+- ドキュメントが保存されていない場合は、**実装を中止**する
+- 要求仕様書：何を達成すべきか（入出力、制約、品質基準）。作成時は `docs/REQUIREMENTS_STANDARD.md` の基準に従うこと
+- 機能設計書：どう実現するか（モジュール構成、アルゴリズム、データ構造）。作成時は `docs/DESIGN_STANDARD.md` の基準に従うこと
+- ドキュメントは `docs/issues/{案件フォルダ}/` に置く（`requirements.md`, `design.md`）
+- **/clear 後でも実装がスムーズにできるよう、必要な情報を全て記述する**
+- 暗黙知に頼らず、**自己完結したドキュメント**にする（前の会話コンテキストがなくても実装できること）
+- レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
+- ライブラリの追加・変更・削除を行った場合は `docs/TECH_STACK.md` も更新すること
+- 新規ライブラリ導入時は用途・選定理由・バージョンを `TECH_STACK.md` に追記すること
+
+### テスト
+
+- テストは `tests/` ディレクトリに置く
+- **テスト実行はSubagent（Agentツール）を使う**
+- テスト実行コマンド: `micromamba run -n SynchroCap pytest -v`
+- **テスト結果は `tests/results/` にファイル保存する**
+  - ファイル名：`{type}-{number}_test_result.txt`（例：`feat-008_test_result.txt`）
+  - 内容：pytest の `-v` 出力をそのまま保存する
+
 ## ドキュメント管理ルール
 
 ### 案件管理
@@ -97,7 +138,9 @@ python main.py
 docs/issues/
 └── {type}-{number}-{slug}/    # 例: bug-001-xxx, feat-002-yyy
     ├── README.md              # 概要、ステータス、再現手順
-    └── investigation.md       # 調査メモ
+    ├── investigation.md       # 調査メモ
+    ├── requirements.md        # 要求仕様書（機能追加時）
+    └── design.md              # 機能設計書（機能追加時）
 ```
 
 ### 運用フロー
