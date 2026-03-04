@@ -25,13 +25,14 @@
 | imagingcontrol4 | >=1.2.0（`requirements.txt`）, ==1.3.0.3125（`environment.yml`） | The Imaging Source 産業用カメラ制御 SDK | main, mainwindow, device_resolver, ui_channel_manager, ui_camera_settings, ui_multi_view, recording_controller, chktimestat, ptp_sync_check, ui_camera_settings_viewer | カメラハードウェア指定 |
 | imagingcontrol4pyside6 | バージョン未指定（`requirements.txt`）, ==6.8.0.102（`environment.yml`） | IC4 の PySide6 統合パッケージ | mainwindow（ResourceSelector） | IC4 SDK 公式 GUI 連携 |
 | PySide6 | ==6.8.3（`environment.yml`）, `requirements.txt` では未固定 | Qt6 ベースの GUI フレームワーク | main, mainwindow, ui_channel_manager, ui_camera_settings, ui_multi_view, ui_camera_settings_viewer, resourceselector | IC4 SDK が PySide6 統合を提供 |
-| numpy | ==2.2.6（`environment.yml`）, `requirements.txt` では未記載 | 数値計算・画像データ配列操作 | 未固定（src/ 内で直接 import なし、tools/ で使用） | 画像データ処理の標準ライブラリ |
+| opencv-contrib-python | >=4.9.0 | ArUco/ChArUco検出（CharucoDetector API）、BayerGR8→BGR変換 | ui_calibration, board_detector | ArUcoモジュールがcontrib版にのみ含まれる。`opencv-python` と競合するため置き換えて使用。4.7+で`CharucoDetector`導入、4.9以降で安定 |
+| numpy | ==2.2.6（`environment.yml`）, `requirements.txt` では未記載 | 数値計算・画像データ配列操作 | ui_calibration, board_detector（+ tools/ で使用） | 画像データ処理の標準ライブラリ |
 
 ### ツール類（tools/）
 
 | ライブラリ名 | バージョン | 用途 | 使用箇所 | 選定理由 |
 |-------------|-----------|------|---------|---------|
-| opencv-python (cv2) | 未固定 | 画像処理・チェスボード検出・Bayer変換 | tools/viz_corners, chk_qr, timeqr, cuda_bayer2jpeg, calibrate_intrinsics, estimate_extrinsics, extrinsics_opencv | 画像処理の標準ライブラリ |
+| opencv-python (cv2) | 未固定 | 画像処理・チェスボード検出・Bayer変換 | tools/viz_corners, chk_qr, timeqr, cuda_bayer2jpeg, calibrate_intrinsics, estimate_extrinsics, extrinsics_opencv | 画像処理の標準ライブラリ。**注意**: メインアプリで `opencv-contrib-python` を使用するため、`opencv-python` は自動的に置き換えられる（共存不可） |
 | numpy | ==2.2.6（`environment.yml`） | 数値計算・配列操作 | tools/ 内の大半のスクリプト | cv2 と組み合わせて使用 |
 | toml | 未固定 | TOML 設定ファイル読み込み | tools/viz_corners, calibrate_intrinsics, estimate_extrinsics, extrinsics_opencv | キャリブレーション設定の読み込み |
 | Pillow (PIL) | 未固定 | 画像生成 | tools/timeqr | QR コード画像生成の基盤 |

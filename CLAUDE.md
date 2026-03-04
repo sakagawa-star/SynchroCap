@@ -159,7 +159,34 @@ docs/issues/
 
 ## 現在進行中の案件
 
-なし
+### feat-008: Camera Calibration - Live View with Board Detection
+
+- **ステータス**: ドキュメント作成済み → レビュー待ち
+- **ドキュメント**: `docs/issues/feat-008-camera-calibration/`
+  - `requirements.md` - 要求仕様書
+  - `design.md` - 機能設計書
+- **次のアクション**: ドキュメントのレビュー（Subagent + ユーザー）→ 修正 → 実装
+- **スコープ**: SynchroCapにTab5「Calibration」を追加。カメラ選択、ライブビュー、ChArUco/チェッカーボード検出オーバーレイ、ボード設定パネル
+- **新規ファイル**: `src/synchroCap/ui_calibration.py`, `src/synchroCap/board_detector.py`
+- **変更ファイル**: `src/synchroCap/mainwindow.py`（タブ追加・切り替え制御）
+- **追加ライブラリ**: `opencv-contrib-python`（`opencv-python`と置き換え）→ TECH_STACK.md更新が必要
+
+### カメラキャリブレーション全体計画（feat-008〜013）
+
+```
+feat-008: ライブビュー + ボード検出 (Tab5追加) ← 今ここ
+    │
+    ▼
+feat-009: 手動キャプチャ + キャリブレーション計算
+    ├──> feat-010: エクスポート (TOML/JSON)
+    ├──> feat-011: 自動キャプチャ + 品質チェック
+    ├──> feat-012: カバレッジヒートマップ + ガイド
+    └──> feat-013: セッション保存/再開
+```
+
+- feat-009〜013のドキュメントはfeat-008完了後に順次作成する
+- 全モジュールは `src/synchroCap/` 内に配置（SynchroCapの一部として統合）
+- 草案の全体像: `/home/sakagawa/Downloads/synchrocap_calibration_design.md`
 
 ## 完了済み調査案件
 
