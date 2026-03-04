@@ -161,15 +161,16 @@ docs/issues/
 
 ### feat-008: Camera Calibration - Live View with Board Detection
 
-- **ステータス**: ドキュメント作成済み → レビュー待ち
+- **ステータス**: レビュー完了 → **実装待ち**
+- **次のアクション**: 実装（ドキュメントを読んで実装を開始する）
 - **ドキュメント**: `docs/issues/feat-008-camera-calibration/`
-  - `requirements.md` - 要求仕様書
-  - `design.md` - 機能設計書
-- **次のアクション**: ドキュメントのレビュー（Subagent + ユーザー）→ 修正 → 実装
-- **スコープ**: SynchroCapにTab5「Calibration」を追加。カメラ選択、ライブビュー、ChArUco/チェッカーボード検出オーバーレイ、ボード設定パネル
+  - `requirements.md` - 要求仕様書（レビュー済み）
+  - `design.md` - 機能設計書（レビュー済み）
+- **スコープ**: SynchroCapにTab5（index=4）「Calibration」を追加。カメラ選択、ライブビュー、ChArUco/チェッカーボード検出オーバーレイ、ボード設定パネル
 - **新規ファイル**: `src/synchroCap/ui_calibration.py`, `src/synchroCap/board_detector.py`
-- **変更ファイル**: `src/synchroCap/mainwindow.py`（タブ追加・切り替え制御）
-- **追加ライブラリ**: `opencv-contrib-python`（`opencv-python`と置き換え）→ TECH_STACK.md更新が必要
+- **変更ファイル**: `src/synchroCap/mainwindow.py`（タブ追加・切り替え制御）、`docs/TECH_STACK.md`（更新済み）
+- **追加ライブラリ**: `opencv-contrib-python >=4.9.0`（`opencv-python`と置き換え）→ TECH_STACK.md更新済み
+- **タブ番号規約**: プロジェクト全体で1-indexed（Tab1=Channel Manager, Tab2=Camera Settings, Tab3=Multi View, Tab4=Camera Settings Viewer, Tab5=Calibration）。ソースコードの変数名・ログメッセージもこの規約に従う
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 

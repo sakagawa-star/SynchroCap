@@ -1,6 +1,6 @@
 # feat-008: Camera Calibration - Live View with Board Detection
 
-## Status: Open
+## Status: Implementation Ready
 
 ## Created: 2026-03-04
 
