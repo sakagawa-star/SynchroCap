@@ -25,7 +25,7 @@
 | imagingcontrol4 | >=1.2.0（`requirements.txt`）, ==1.3.0.3125（`environment.yml`） | The Imaging Source 産業用カメラ制御 SDK | main, mainwindow, device_resolver, ui_channel_manager, ui_camera_settings, ui_multi_view, recording_controller, chktimestat, ptp_sync_check, ui_camera_settings_viewer | カメラハードウェア指定 |
 | imagingcontrol4pyside6 | バージョン未指定（`requirements.txt`）, ==6.8.0.102（`environment.yml`） | IC4 の PySide6 統合パッケージ | mainwindow（ResourceSelector） | IC4 SDK 公式 GUI 連携 |
 | PySide6 | ==6.8.3（`environment.yml`）, `requirements.txt` では未固定 | Qt6 ベースの GUI フレームワーク | main, mainwindow, ui_channel_manager, ui_camera_settings, ui_multi_view, ui_camera_settings_viewer, resourceselector | IC4 SDK が PySide6 統合を提供 |
-| opencv-contrib-python | >=4.9.0 | ArUco/ChArUco検出（CharucoDetector API）、BayerGR8→BGR変換 | ui_calibration, board_detector | ArUcoモジュールがcontrib版にのみ含まれる。`opencv-python` と競合するため置き換えて使用。4.7+で`CharucoDetector`導入、4.9以降で安定 |
+| opencv-contrib-python | >=4.9.0 | ArUco/ChArUco検出（CharucoDetector API）、BGR→RGB変換、オーバーレイ描画 | ui_calibration, board_detector | ArUcoモジュールがcontrib版にのみ含まれる。`opencv-python` と競合するため置き換えて使用。4.7+で`CharucoDetector`導入、4.9以降で安定 |
 | numpy | ==2.2.6（`environment.yml`）, `requirements.txt` では未記載 | 数値計算・画像データ配列操作 | ui_calibration, board_detector（+ tools/ で使用） | 画像データ処理の標準ライブラリ |
 
 ### ツール類（tools/）

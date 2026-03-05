@@ -15,6 +15,7 @@ import imagingcontrol4 as ic4
 from channel_registry import ChannelRegistry
 import device_resolver
 from resourceselector import ResourceSelector
+from ui_calibration import CalibrationWidget
 from ui_camera_settings import CameraSettingsWidget
 from ui_camera_settings_viewer import CameraSettingsViewerWidget
 from ui_channel_manager import ChannelManagerWidget
@@ -164,6 +165,17 @@ class MainWindow(QMainWindow):
         )
         self.tabs.addTab(self.camera_settings_viewer_widget, "Camera Settings Viewer")
 
+        try:
+            self.calibration_widget = CalibrationWidget(
+                registry=self.channel_registry,
+                resolver=self.device_resolver,
+                parent=self,
+            )
+            self.tabs.addTab(self.calibration_widget, "Calibration")
+        except Exception as e:
+            print(f"[ERROR] Failed to create CalibrationWidget: {e}")
+            self.calibration_widget = None
+
         self.tabs.currentChanged.connect(self.onTabChanged)
 
         self.video_widget = ic4.pyside6.DisplayWidget()
@@ -183,6 +195,11 @@ class MainWindow(QMainWindow):
         self.update_statistics_timer.timeout.connect(self.onUpdateStatisticsTimer)
         self.update_statistics_timer.start()
 
+    def _stop_calibration_if_active(self) -> None:
+        """Stop calibration live view if CalibrationWidget exists."""
+        if self.calibration_widget is not None:
+            self.calibration_widget.stop_live_view()
+
     def onTabChanged(self, index: int):
         if self._tabs_locked:
             multi_index = self.tabs.indexOf(self.multi_view_widget)
@@ -196,6 +213,7 @@ class MainWindow(QMainWindow):
                 self.multi_view_widget.stop_all()
             except Exception:
                 pass
+            self._stop_calibration_if_active()
             QTimer.singleShot(0, self.camera_settings_widget.refresh_channels)
         elif self.tabs.widget(index) is self.multi_view_widget:
             print("[tab-switch] to Tab3: stopping CameraSettings preview")
@@ -203,6 +221,7 @@ class MainWindow(QMainWindow):
                 self.camera_settings_widget.stop_preview_only()
             except Exception:
                 pass
+            self._stop_calibration_if_active()
             QTimer.singleShot(0, self.multi_view_widget.refresh_and_resume)
         elif self.tabs.widget(index) is self.camera_settings_viewer_widget:
             print("[tab-switch] to Tab4: stopping other tabs")
@@ -214,7 +233,21 @@ class MainWindow(QMainWindow):
                 self.camera_settings_widget.stop_preview_only()
             except Exception:
                 pass
+            self._stop_calibration_if_active()
             QTimer.singleShot(0, self.camera_settings_viewer_widget.refresh)
+        elif self.calibration_widget is not None and self.tabs.widget(index) is self.calibration_widget:
+            print("[tab-switch] to Tab5: stopping other tabs")
+            try:
+                self.multi_view_widget.stop_all()
+            except Exception:
+                pass
+            try:
+                self.camera_settings_widget.stop_preview_only()
+            except Exception:
+                pass
+            QTimer.singleShot(0, self.calibration_widget.on_tab_activated)
+        else:
+            self._stop_calibration_if_active()
 
     def set_tabs_locked(self, locked: bool) -> None:
         self._tabs_locked = locked
@@ -230,6 +263,10 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(tab3_index, True)
         if tab4_index != -1:
             self.tabs.setTabEnabled(tab4_index, not locked)
+        if self.calibration_widget is not None:
+            tab_calib_index = self.tabs.indexOf(self.calibration_widget)
+            if tab_calib_index != -1:
+                self.tabs.setTabEnabled(tab_calib_index, not locked)
         if locked:
             self.statusBar().showMessage("Tabs locked during recording")
             if tab3_index != -1 and self.tabs.currentIndex() != tab3_index:
@@ -265,6 +302,9 @@ class MainWindow(QMainWindow):
         self.updateControls()
 
     def closeEvent(self, ev: QCloseEvent):
+        if self.calibration_widget is not None:
+            self.calibration_widget.stop_live_view()
+
         if self.grabber.is_streaming:
             self.grabber.stream_stop()
 

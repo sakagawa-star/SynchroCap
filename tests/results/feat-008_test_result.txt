@@ -1,0 +1,24 @@
+feat-008: Camera Calibration - Live View with Board Detection
+Test Date: 2026-03-04
+Environment: micromamba SynchroCap (Python 3.10)
+
+Note: pytest is not installed in the SynchroCap environment.
+Manual verification performed instead.
+
+== Import Tests ==
+board_detector.py: import OK
+  BoardDetector() instantiated, max_corners=24
+
+ui_calibration.py: import OK
+  CalibrationWidget class loaded successfully
+
+== BoardDetector Unit Tests ==
+1. Blank image (640x480 black): success=False, reason="No board detected" ... PASS
+2. Checkerboard mode (blank image): success=False, reason="Checkerboard not detected" ... PASS
+3. Empty frame (0x0): success=False, reason="Empty frame" ... PASS
+4. draw_overlay (no detection): returns copy unchanged ... PASS
+5. reconfigure (charuco -> checkerboard): max_corners=24 ... PASS
+
+== Summary ==
+All manual tests passed. No regressions detected.
+Formal pytest suite to be added when pytest is installed.

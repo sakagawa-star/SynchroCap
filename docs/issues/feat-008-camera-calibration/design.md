@@ -54,7 +54,7 @@ mainwindow.py (既存)
   └── ui_calibration.py (新規)
         ├── board_detector.py (新規)
         ├── imagingcontrol4 (ic4)       # 既存
-        ├── cv2 (opencv-contrib-python) # BayerGR8→BGR変換
+        ├── cv2 (opencv-contrib-python) # BGR→RGB変換、検出オーバーレイ
         ├── numpy                       # 画像配列
         ├── channel_registry.py         # 既存
         └── device_resolver.py          # 既存
@@ -94,7 +94,7 @@ src/synchroCap/
 |-----------|-----------|------|---------|
 | imagingcontrol4 | >=1.2.0 | カメラ制御 | SynchroCap既存 |
 | PySide6 | ==6.8.3 | GUI | SynchroCap既存 |
-| opencv-contrib-python | >=4.9.0 | ArUco/ChArUco検出（CharucoDetector API）、BayerGR8→BGR変換 | ArUcoモジュールがcontrib版にのみ含まれる。4.7+で`CharucoDetector`導入、4.9以降で安定 |
+| opencv-contrib-python | >=4.9.0 | ArUco/ChArUco検出（CharucoDetector API）、BGR→RGB変換、オーバーレイ描画 | ArUcoモジュールがcontrib版にのみ含まれる。4.7+で`CharucoDetector`導入、4.9以降で安定 |
 | numpy | >=2.0.0 | 画像配列操作 | cv2の依存として必須 |
 
 **設計判断**: opencv-python vs opencv-contrib-python
@@ -228,6 +228,17 @@ if tab_calib_index != -1:
    b. 新しいGrabberを作成: `ic4.Grabber()` → `device_open(device_info)`
    c. ライブビュー開始（FR-003）
 
+**設計制約: カメラ設定の変更禁止**
+
+CalibrationタブはカメラのPropertyMapに設定を書き込まない。以下のカメラ設定はCamera Settingsタブ（Tab2）のみが変更を許可されており、Calibrationタブは変更してはならない:
+
+- Resolution, PixelFormat, FrameRate, Trigger Interval
+- Auto White Balance, White Balance
+- Auto Exposure, Exposure
+- Auto Gain, Gain
+
+Calibrationタブは `device_open()` → `stream_setup()` のみを行い、カメラが現在保持している設定をそのまま使用する（MultiViewタブと同じパターン）。QueueSinkに `accepted_pixel_formats=[ic4.PixelFormat.BGR8]` を指定することで、カメラのピクセルフォーマット（BayerGR8/BayerGR16/BGR8）に関わらず、IC4がBGR8に変換してSinkに渡す。
+
 #### エラーハンドリング
 
 | エラー | 検出方法 | リカバリ | ログ |
@@ -246,17 +257,19 @@ if tab_calib_index != -1:
 #### データフロー
 
 ```
-ic4.QueueSink → ic4.ImageBuffer → numpy.ndarray (BayerGR8, H×W, uint8)
-  → cv2.cvtColor(COLOR_BayerGR2BGR) → numpy.ndarray (BGR, H×W×3, uint8)
+ic4.QueueSink(accepted_pixel_formats=[BGR8])
+  → ic4.ImageBuffer → numpy.ndarray (BGR8, H×W×3, uint8)
   → BoardDetector.detect() + draw_overlay()
   → cv2.cvtColor(COLOR_BGR2RGB) → numpy.ndarray (RGB, H×W×3, uint8)
   → QImage(data, W, H, stride, Format_RGB888)
   → QPixmap.fromImage() → QLabel.setPixmap()
 ```
 
+QueueSinkに `accepted_pixel_formats=[ic4.PixelFormat.BGR8]` を指定することで、カメラのネイティブピクセルフォーマット（BayerGR8等）からBGR8への変換をIC4内部で行わせる。これにより、Camera Settingsで設定されたピクセルフォーマットやホワイトバランス設定が正しく反映された状態のBGR画像が得られる。
+
 #### 処理ロジック
 
-SynchroCapの既存パターン（`QueueSinkListener` コールバック）を採用する。ただし `DisplayWidget` は使用せず、自前でBayerGR8→BGR変換とオーバーレイ描画を行う。
+SynchroCapの既存パターン（`QueueSinkListener` コールバック）を採用する。`DisplayWidget` は使用せず、QueueSinkからBGR8画像を取得してオーバーレイ描画を行う。
 
 **QueueSinkListenerの実装:**
 
@@ -275,7 +288,7 @@ class _CalibSinkListener(ic4.QueueSinkListener):
     def frames_queued(self, sink):
         buf = sink.pop_output_buffer()
         if buf is not None:
-            arr = buf.numpy_copy()  # BayerGR8, shape=(H, W), dtype=uint8
+            arr = buf.numpy_copy()  # BGR8, shape=(H, W, 3), dtype=uint8
             self._on_frame(arr)
 ```
 
@@ -303,7 +316,7 @@ def _process_latest_frame(self):
         return
     self._latest_frame = None
 
-    bgr = cv2.cvtColor(frame, cv2.COLOR_BayerGR2BGR)
+    bgr = frame  # Already BGR8 from IC4 QueueSink
     result = self._detector.detect(bgr)
     if result.success:
         bgr = self._detector.draw_overlay(bgr, result)
@@ -313,13 +326,20 @@ def _process_latest_frame(self):
 
 **ストリーム開始:**
 
+カメラ設定は変更しない（MultiViewと同じパターン）。`device_open()` → `stream_setup()` のみ。QueueSinkの `accepted_pixel_formats=[BGR8]` により、カメラのピクセルフォーマットに関わらずBGR8で受け取る。
+
 ```python
-def _start_live_view(self, device_info: ic4.DeviceInfo):
+def _start_live_view(self, device_info: ic4.DeviceInfo, serial: str):
     self._grabber = ic4.Grabber()
-    self._grabber.event_add_device_lost(self._on_device_lost)
+    self._grabber.event_add_device_lost(self._on_device_lost_callback)
     self._grabber.device_open(device_info)
+
+    # カメラ設定は変更しない（Camera Settingsタブのみが設定変更を許可される）
     listener = _CalibSinkListener(self._on_frame_received)
-    self._sink = ic4.QueueSink(listener)
+    self._sink = ic4.QueueSink(
+        listener,
+        accepted_pixel_formats=[ic4.PixelFormat.BGR8],
+    )
     self._grabber.stream_setup(self._sink)
     self._frame_timer.start()
 ```
@@ -359,9 +379,10 @@ def _display_frame(self, bgr: numpy.ndarray):
     self._live_view_label.setPixmap(scaled)
 ```
 
-**設計判断**: DisplayWidget vs 自前描画
-- 採用: 自前でBayerGR8→BGR変換→QLabel描画（検出オーバーレイを重ねるためにBGR画像へのアクセスが必要）
+**設計判断**: DisplayWidget vs QueueSink(BGR8) + QLabel描画
+- 採用: QueueSinkに `accepted_pixel_formats=[BGR8]` を指定し、IC4内部でBGR8変換させた上でQLabel描画（検出オーバーレイを重ねるためにBGR画像へのアクセスが必要。IC4がBayer変換とホワイトバランス適用を行うため、Camera Settingsの設定が正しく反映される）
 - 却下: DisplayWidget使用（変換後の画像にアクセスできないため、オーバーレイ描画ができない）
+- 却下: 自前でBayerGR8→BGR変換（`cv2.cvtColor(COLOR_BayerGR2BGR)`）（IC4のホワイトバランス処理が適用されず、Camera Settingsの設定と異なる色味になる。また、カメラのピクセルフォーマットがBayerGR8以外に設定されている場合に対応できない）
 
 **設計判断**: QThread vs QTimer + フレームスキップ
 - 採用: QTimer + 最新フレーム保持（実装がシンプル。SynchroCapのQTimerパターンに準拠。検出処理は1フレームあたり10〜50msで、30FPS表示には十分）
@@ -372,7 +393,6 @@ def _display_frame(self, bgr: numpy.ndarray):
 | エラー | 検出方法 | リカバリ | ログ |
 |--------|---------|---------|------|
 | stream_setup失敗 | `ic4.IC4Exception` | ステータスにエラー表示 | ERROR: `stream_setup failed: {e}` |
-| BayerGR8変換失敗 | `cv2.error` | 該当フレームをスキップ | WARNING: `Bayer conversion failed` |
 | QImage作成失敗 | `qimg.isNull()` チェック | 該当フレームをスキップ | WARNING: `QImage creation failed` |
 
 #### 境界条件
@@ -556,7 +576,7 @@ def draw_overlay(self, frame_bgr: numpy.ndarray, result: DetectionResult) -> num
 
 ### 6.2 設定ファイル
 
-本案件では設定ファイルを使用しない。ボード設定はGUI上で毎回指定する（永続化は後続案件のセッション機能で対応）。
+ボード設定はGUI上で毎回指定する（永続化は後続案件のセッション機能で対応）。カメラ設定は参照しない（カメラが現在保持している設定をそのまま使用する）。
 
 ---
 
@@ -600,7 +620,9 @@ class CalibrationWidget(QWidget):
         │          │  ステータス表示     │
         └──────────┴──────────────────┘
         左パネル幅: 固定200px
-        ライブビュー: 残り領域を使用
+        ライブビュー: 残り領域を使用（最小サイズ制約なし）
+        ステータスラベル: 固定高さ24px（stretch=0で縮小されない）
+        ウィンドウ縮小に追従してレイアウト全体が縮小される
         """
 
     def _populate_camera_list(self) -> None:
@@ -618,7 +640,7 @@ class CalibrationWidget(QWidget):
         """QueueSinkListenerから呼ばれる。_latest_frame に保存"""
 
     def _process_latest_frame(self) -> None:
-        """QTimerから呼ばれる。BayerGR8→BGR変換→検出→オーバーレイ→表示"""
+        """QTimerから呼ばれる。BGR8フレーム→検出→オーバーレイ→表示"""
 
     def _display_frame(self, bgr: numpy.ndarray) -> None:
         """BGR画像をQLabel上に表示。アスペクト比を保ってスケーリング"""
