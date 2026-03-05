@@ -161,13 +161,13 @@ class CalibrationWidget(QWidget):
 
         self._cols_spin = QSpinBox()
         self._cols_spin.setRange(3, 20)
-        self._cols_spin.setValue(7)
+        self._cols_spin.setValue(5)
         self._cols_spin.valueChanged.connect(self._on_board_config_changed)
         board_form.addRow("Columns:", self._cols_spin)
 
         self._rows_spin = QSpinBox()
         self._rows_spin.setRange(3, 20)
-        self._rows_spin.setValue(5)
+        self._rows_spin.setValue(7)
         self._rows_spin.valueChanged.connect(self._on_board_config_changed)
         board_form.addRow("Rows:", self._rows_spin)
 
@@ -198,15 +198,14 @@ class CalibrationWidget(QWidget):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._live_view_label = QLabel("カメラを選択してください")
-        self._live_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._live_view_label.setMinimumSize(320, 240)
-        self._live_view_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
-        right_layout.addWidget(self._live_view_label, stretch=1)
-
         self._status_label = QLabel("Ready")
         self._status_label.setFixedHeight(24)
         right_layout.addWidget(self._status_label, stretch=0)
+
+        self._live_view_label = QLabel("カメラを選択してください")
+        self._live_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._live_view_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
+        right_layout.addWidget(self._live_view_label, stretch=1)
 
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 0)

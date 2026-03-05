@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- [feat-008](issues/feat-008-camera-calibration/) Camera Calibration - Live View with Board Detection (Tab5)
+  - カメラ選択・ライブビュー表示
+  - ChArUco / チェッカーボードのリアルタイム検出オーバーレイ
+  - ボード設定パネル（タイプ、列数、行数、サイズ）
+  - デフォルト設定: 5x7 DICT_6X6_250（OpenCVチュートリアル準拠）
 - [inv-002](issues/inv-002-device-timestamp-meaning/) device_timestamp_ns タイムスタンプ切り分け実験ツール
   - ソフトウェアトリガー + TIMESTAMP_LATCH 方式で device_timestamp_ns の意味を判定
   - `tools/timestamp_test.py` として独立スクリプトで提供

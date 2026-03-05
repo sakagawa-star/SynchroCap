@@ -528,8 +528,8 @@ def draw_overlay(self, frame_bgr: numpy.ndarray, result: DetectionResult) -> num
 | 項目 | デフォルト値 | 型 | 値域 | ウィジェット |
 |------|-------------|-----|------|-------------|
 | board_type | `"charuco"` | str | `"charuco"`, `"checkerboard"` | QComboBox |
-| cols | 7 | int | 3〜20 | QSpinBox |
-| rows | 5 | int | 3〜20 | QSpinBox |
+| cols | 5 | int | 3〜20 | QSpinBox |
+| rows | 7 | int | 3〜20 | QSpinBox |
 | square_mm | 30.0 | float | 1.0〜200.0 | QDoubleSpinBox (step: 0.5) |
 | marker_mm | 22.0 | float | 1.0〜square_mm未満 | QDoubleSpinBox (step: 0.5) |
 
@@ -611,17 +611,16 @@ class CalibrationWidget(QWidget):
     def _create_ui(self) -> None:
         """UI構築。レイアウト:
         ┌──────────┬──────────────────┐
-        │カメラ一覧 │   ライブビュー     │
-        │(QList)   │   (QLabel)        │
-        │          │                   │
-        │──────────│                   │
+        │カメラ一覧 │  ステータス表示     │
+        │(QList)   │──────────────────│
+        │          │   ライブビュー     │
+        │──────────│   (QLabel)        │
         │ボード設定 │                   │
-        │(設定パネル)│──────────────────│
-        │          │  ステータス表示     │
+        │(設定パネル)│                   │
         └──────────┴──────────────────┘
         左パネル幅: 固定200px
+        ステータスラベル: 固定高さ24px（stretch=0で縮小されない）、ライブビューの上に配置
         ライブビュー: 残り領域を使用（最小サイズ制約なし）
-        ステータスラベル: 固定高さ24px（stretch=0で縮小されない）
         ウィンドウ縮小に追従してレイアウト全体が縮小される
         """
 
@@ -670,7 +669,7 @@ class DetectionResult:
 class BoardDetector:
     """ChArUco/チェッカーボード検出器"""
 
-    def __init__(self, board_type: str = "charuco", cols: int = 7, rows: int = 5,
+    def __init__(self, board_type: str = "charuco", cols: int = 5, rows: int = 7,
                  square_mm: float = 30.0, marker_mm: float = 22.0) -> None:
         """
         Args:
@@ -713,7 +712,7 @@ class BoardDetector:
 | レベル | 使い分け | 例 |
 |--------|---------|-----|
 | DEBUG | フレームごとの検出結果 | `Detection: 24 corners in 15ms` |
-| INFO | カメラ接続/切断、ボード設定変更 | `Camera 05520125 connected`, `Board config: charuco 7x5` |
+| INFO | カメラ接続/切断、ボード設定変更 | `Camera 05520125 connected`, `Board config: charuco 5x7` |
 | WARNING | 部分的な失敗 | `Bayer conversion failed`, `Camera 05520126 offline` |
 | ERROR | 処理続行不能なエラー | `Failed to open camera`, `stream_setup failed` |
 

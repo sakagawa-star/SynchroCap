@@ -159,40 +159,15 @@ docs/issues/
 
 ## 現在進行中の案件
 
-### feat-008: Camera Calibration - Live View with Board Detection
-
-- **ステータス**: 初回実装済み → **不具合修正中**
-- **次のアクション**: ドキュメント（requirements.md, design.md）を読み、以下の未修正の不具合を修正する
-- **ドキュメント**: `docs/issues/feat-008-camera-calibration/`
-  - `requirements.md` - 要求仕様書（不具合対応の更新反映済み・レビュー済み）
-  - `design.md` - 機能設計書（不具合対応の更新反映済み・レビュー済み）
-
-#### 実装済みファイル（初回実装完了）
-- `src/synchroCap/board_detector.py` — 新規作成済み（変更不要）
-- `src/synchroCap/ui_calibration.py` — 新規作成済み（**要修正**）
-- `src/synchroCap/mainwindow.py` — タブ追加・切り替え制御（変更済み、追加修正不要）
-- `docs/TECH_STACK.md` — 更新済み
-
-#### 未修正の不具合（2件）
-1. **ステータスラベルが見切れる + ウィンドウ縮小不可**: `ui_calibration.py` の `_live_view_label.setMinimumSize(320, 240)` が原因。ドキュメント更新済み（FR-001, FR-003, design.md _create_ui）。修正内容: `setMinimumSize()` を削除し、ステータスラベルに `setFixedHeight(24)` + `stretch=0` を設定する
-2. **ステータスラベルの `setMaximumHeight` → `setFixedHeight` 変更**: ルール違反で先行修正済み（コード上は既に `setFixedHeight(24)` + `stretch=0` に変更されている）。ドキュメントとの整合性は確認済み
-
-#### 修正時の注意事項
-- `ui_calibration.py` の修正箇所: `self._live_view_label.setMinimumSize(320, 240)` の行を削除するのみ
-- ボード検出機能の動作確認がまだ（ステータスラベルが見えなかったため未確認）。修正後に実機テストで確認すること
-- **カメラ設定変更禁止ルール**: Calibrationタブはカメラ設定を変更しない（Resolution, PixelFormat, FrameRate, Trigger Interval, Auto White Balance, White Balance, Auto Exposure, Exposure, Auto Gain, Gain）。設定変更はCamera Settingsタブのみが許可される
-
-#### その他
-- **追加ライブラリ**: `opencv-contrib-python >=4.9.0`（`opencv-python`と置き換え）→ TECH_STACK.md更新済み
-- **タブ番号規約**: プロジェクト全体で1-indexed（Tab1=Channel Manager, Tab2=Camera Settings, Tab3=Multi View, Tab4=Camera Settings Viewer, Tab5=Calibration）。ソースコードの変数名・ログメッセージもこの規約に従う
+なし（次の案件: feat-009）
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 
 ```
-feat-008: ライブビュー + ボード検出 (Tab5追加) ← 今ここ
+feat-008: ライブビュー + ボード検出 (Tab5追加) ← 完了
     │
     ▼
-feat-009: 手動キャプチャ + キャリブレーション計算
+feat-009: 手動キャプチャ + キャリブレーション計算 ← 次
     ├──> feat-010: エクスポート (TOML/JSON)
     ├──> feat-011: 自動キャプチャ + 品質チェック
     ├──> feat-012: カバレッジヒートマップ + ガイド
@@ -203,6 +178,11 @@ feat-009: 手動キャプチャ + キャリブレーション計算
 - 全モジュールは `src/synchroCap/` 内に配置（SynchroCapの一部として統合）
 - 草案の全体像: `/home/sakagawa/Downloads/synchrocap_calibration_design.md`
 
-## 完了済み調査案件
+### 設計ルール（全案件共通）
+- **カメラ設定変更禁止ルール**: Calibrationタブはカメラ設定を変更しない（Resolution, PixelFormat, FrameRate, Trigger Interval, Auto White Balance, White Balance, Auto Exposure, Exposure, Auto Gain, Gain）。設定変更はCamera Settingsタブのみが許可される
+- **タブ番号規約**: プロジェクト全体で1-indexed（Tab1=Channel Manager, Tab2=Camera Settings, Tab3=Multi View, Tab4=Camera Settings Viewer, Tab5=Calibration）。ソースコードの変数名・ログメッセージもこの規約に従う
 
+## 完了済み案件
+
+- **feat-008**: Camera Calibration - Live View with Board Detection → `docs/issues/feat-008-camera-calibration/`
 - **inv-002**: `device_timestamp_ns` の意味の切り分け → `tools/timestamp_test.py` (ソフトウェアトリガー + TIMESTAMP_LATCH 方式)

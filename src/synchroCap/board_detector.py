@@ -31,8 +31,8 @@ class BoardDetector:
     def __init__(
         self,
         board_type: str = "charuco",
-        cols: int = 7,
-        rows: int = 5,
+        cols: int = 5,
+        rows: int = 7,
         square_mm: float = 30.0,
         marker_mm: float = 22.0,
     ) -> None:

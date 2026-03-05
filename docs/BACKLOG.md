@@ -4,7 +4,7 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| [feat-008](issues/feat-008-camera-calibration/) | Feature | Camera Calibration - Live View with Board Detection | Implementation Ready |
+| [feat-008](issues/feat-008-camera-calibration/) | Feature | Camera Calibration - Live View with Board Detection | Done |
 | feat-009 | Feature | Camera Calibration - Manual Capture + Calibration Calculation | Planned |
 | feat-010 | Feature | Camera Calibration - Export (Pose2Sim TOML + JSON) | Planned |
 | feat-011 | Feature | Camera Calibration - Auto Capture + Quality Check | Planned |
