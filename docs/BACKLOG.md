@@ -4,7 +4,7 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) | Bug | Calibration SpinBox ホイールスクロール誤操作 | Open |
+| [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) | Bug | Calibration Board Settings 誤操作防止 | Done |
 | [feat-008](issues/feat-008-camera-calibration/) | Feature | Camera Calibration - Live View with Board Detection | Done |
 | feat-009 | Feature | Camera Calibration - Manual Capture + Calibration Calculation | Planned |
 | feat-010 | Feature | Camera Calibration - Export (Pose2Sim TOML + JSON) | Planned |

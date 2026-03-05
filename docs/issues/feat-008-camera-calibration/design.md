@@ -649,8 +649,8 @@ class CalibrationWidget(QWidget):
         成功時: 'Detected: {n}/{total} corners'
         失敗時: 'No board detected' または failure_reason"""
 
-    def _on_board_config_changed(self) -> None:
-        """ボード設定パネルの値が変更された時にBoardDetectorを再初期化"""
+    def _apply_board_config(self) -> None:
+        """ボード設定をBoardDetectorに適用する（bug-007でダイアログ方式に変更）"""
 ```
 
 ### 7.2 board_detector.py

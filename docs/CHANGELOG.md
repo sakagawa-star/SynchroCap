@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) Calibration Board Settings 誤操作防止
+  - SpinBox/ComboBoxを読み取り専用QPushButton + ダイアログ方式に変更
+  - Camera Settings（Tab2）と同じ設計思想に統一
+
 ### Added
 - [feat-008](issues/feat-008-camera-calibration/) Camera Calibration - Live View with Board Detection (Tab5)
   - カメラ選択・ライブビュー表示

@@ -11,6 +11,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QGroupBox,
     QFormLayout,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -79,6 +82,13 @@ class CalibrationWidget(QWidget):
         self._sink: ic4.QueueSink | None = None
         self._latest_frame: numpy.ndarray | None = None
         self._current_serial: str = ""
+
+        # Board settings (internal state)
+        self._board_type: str = "charuco"
+        self._cols: int = 5
+        self._rows: int = 7
+        self._square_mm: float = 30.0
+        self._marker_mm: float = 22.0
 
         # Board detector
         self._detector = BoardDetector()
@@ -152,40 +162,25 @@ class CalibrationWidget(QWidget):
         board_group = QGroupBox("Board Settings")
         board_form = QFormLayout(board_group)
 
-        self._board_type_combo = QComboBox()
-        self._board_type_combo.addItems(["ChArUco", "Checkerboard"])
-        self._board_type_combo.currentIndexChanged.connect(
-            self._on_board_config_changed
-        )
-        board_form.addRow("Type:", self._board_type_combo)
+        self._type_button = QPushButton("ChArUco")
+        self._type_button.clicked.connect(self._on_type_button_clicked)
+        board_form.addRow("Type:", self._type_button)
 
-        self._cols_spin = QSpinBox()
-        self._cols_spin.setRange(3, 20)
-        self._cols_spin.setValue(5)
-        self._cols_spin.valueChanged.connect(self._on_board_config_changed)
-        board_form.addRow("Columns:", self._cols_spin)
+        self._cols_button = QPushButton("5")
+        self._cols_button.clicked.connect(self._on_cols_button_clicked)
+        board_form.addRow("Columns:", self._cols_button)
 
-        self._rows_spin = QSpinBox()
-        self._rows_spin.setRange(3, 20)
-        self._rows_spin.setValue(7)
-        self._rows_spin.valueChanged.connect(self._on_board_config_changed)
-        board_form.addRow("Rows:", self._rows_spin)
+        self._rows_button = QPushButton("7")
+        self._rows_button.clicked.connect(self._on_rows_button_clicked)
+        board_form.addRow("Rows:", self._rows_button)
 
-        self._square_spin = QDoubleSpinBox()
-        self._square_spin.setRange(1.0, 200.0)
-        self._square_spin.setValue(30.0)
-        self._square_spin.setSingleStep(0.5)
-        self._square_spin.setSuffix(" mm")
-        self._square_spin.valueChanged.connect(self._on_board_config_changed)
-        board_form.addRow("Square size:", self._square_spin)
+        self._square_button = QPushButton("30.0 mm")
+        self._square_button.clicked.connect(self._on_square_button_clicked)
+        board_form.addRow("Square size:", self._square_button)
 
-        self._marker_spin = QDoubleSpinBox()
-        self._marker_spin.setRange(1.0, 200.0)
-        self._marker_spin.setValue(22.0)
-        self._marker_spin.setSingleStep(0.5)
-        self._marker_spin.setSuffix(" mm")
-        self._marker_spin.valueChanged.connect(self._on_board_config_changed)
-        board_form.addRow("Marker size:", self._marker_spin)
+        self._marker_button = QPushButton("22.0 mm")
+        self._marker_button.clicked.connect(self._on_marker_button_clicked)
+        board_form.addRow("Marker size:", self._marker_button)
 
         left_layout.addWidget(board_group)
         left_layout.addStretch()
@@ -361,25 +356,142 @@ class CalibrationWidget(QWidget):
 
     # ── Board settings ──
 
-    def _on_board_config_changed(self) -> None:
-        """Reconfigure BoardDetector when any board setting changes."""
-        board_type = "charuco" if self._board_type_combo.currentIndex() == 0 else "checkerboard"
-        cols = self._cols_spin.value()
-        rows = self._rows_spin.value()
-        square_mm = self._square_spin.value()
-        marker_mm = self._marker_spin.value()
+    def _apply_board_config(self) -> None:
+        """Apply current board config to detector. Enforce marker_mm < square_mm."""
+        if self._marker_mm >= self._square_mm:
+            self._marker_mm = max(1.0, self._square_mm - 1.0)
+            if self._square_mm < 2.0:
+                self._marker_mm = 1.0
+            self._marker_button.setText(f"{self._marker_mm:.1f} mm")
+            logger.info("marker_mm adjusted to %.1f", self._marker_mm)
 
-        # Enable/disable marker size based on board type
-        self._marker_spin.setEnabled(board_type == "charuco")
+        self._marker_button.setEnabled(self._board_type == "charuco")
 
-        # Enforce marker_mm < square_mm
-        if marker_mm >= square_mm:
-            marker_mm = max(1.0, square_mm - 1.0)
-            if square_mm < 2.0:
-                marker_mm = 1.0
-            self._marker_spin.blockSignals(True)
-            self._marker_spin.setValue(marker_mm)
-            self._marker_spin.blockSignals(False)
-            logger.info("marker_mm adjusted to %.1f", marker_mm)
+        self._detector.reconfigure(
+            self._board_type, self._cols, self._rows,
+            self._square_mm, self._marker_mm,
+        )
 
-        self._detector.reconfigure(board_type, cols, rows, square_mm, marker_mm)
+    def _on_type_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Board Type")
+        layout = QVBoxLayout(dlg)
+
+        combo = QComboBox()
+        combo.addItems(["ChArUco", "Checkerboard"])
+        combo.setCurrentIndex(0 if self._board_type == "charuco" else 1)
+        layout.addWidget(combo)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._board_type = "charuco" if combo.currentIndex() == 0 else "checkerboard"
+        self._type_button.setText("ChArUco" if self._board_type == "charuco" else "Checkerboard")
+        self._apply_board_config()
+
+    def _on_cols_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Columns")
+        layout = QVBoxLayout(dlg)
+
+        spin = QSpinBox()
+        spin.setRange(3, 20)
+        spin.setValue(self._cols)
+        layout.addWidget(spin)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._cols = spin.value()
+        self._cols_button.setText(str(self._cols))
+        self._apply_board_config()
+
+    def _on_rows_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rows")
+        layout = QVBoxLayout(dlg)
+
+        spin = QSpinBox()
+        spin.setRange(3, 20)
+        spin.setValue(self._rows)
+        layout.addWidget(spin)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._rows = spin.value()
+        self._rows_button.setText(str(self._rows))
+        self._apply_board_config()
+
+    def _on_square_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Square Size")
+        layout = QVBoxLayout(dlg)
+
+        spin = QDoubleSpinBox()
+        spin.setRange(1.0, 200.0)
+        spin.setSingleStep(0.5)
+        spin.setSuffix(" mm")
+        spin.setValue(self._square_mm)
+        layout.addWidget(spin)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._square_mm = spin.value()
+        self._square_button.setText(f"{self._square_mm:.1f} mm")
+        self._apply_board_config()
+
+    def _on_marker_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Marker Size")
+        layout = QVBoxLayout(dlg)
+
+        spin = QDoubleSpinBox()
+        spin.setRange(1.0, 200.0)
+        spin.setSingleStep(0.5)
+        spin.setSuffix(" mm")
+        spin.setValue(self._marker_mm)
+        layout.addWidget(spin)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._marker_mm = spin.value()
+        self._marker_button.setText(f"{self._marker_mm:.1f} mm")
+        self._apply_board_config()

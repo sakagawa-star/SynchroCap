@@ -181,8 +181,10 @@ feat-009: 手動キャプチャ + キャリブレーション計算 ← 次
 ### 設計ルール（全案件共通）
 - **カメラ設定変更禁止ルール**: Calibrationタブはカメラ設定を変更しない（Resolution, PixelFormat, FrameRate, Trigger Interval, Auto White Balance, White Balance, Auto Exposure, Exposure, Auto Gain, Gain）。設定変更はCamera Settingsタブのみが許可される
 - **タブ番号規約**: プロジェクト全体で1-indexed（Tab1=Channel Manager, Tab2=Camera Settings, Tab3=Multi View, Tab4=Camera Settings Viewer, Tab5=Calibration）。ソースコードの変数名・ログメッセージもこの規約に従う
+- **設定変更UIの設計思想**: 設定値はメインUI上で直接編集しない。読み取り専用の値表示 + クリックでダイアログ（OK/Cancel）方式を使用する。これにより、マウスホイール等による意図しない設定変更を防止する（Camera Settings, Calibrationタブ共通）
 
 ## 完了済み案件
 
+- **bug-007**: Calibration Board Settings 誤操作防止 → `docs/issues/bug-007-calibration-spinbox-wheel-scroll/`
 - **feat-008**: Camera Calibration - Live View with Board Detection → `docs/issues/feat-008-camera-calibration/`
 - **inv-002**: `device_timestamp_ns` の意味の切り分け → `tools/timestamp_test.py` (ソフトウェアトリガー + TIMESTAMP_LATCH 方式)
