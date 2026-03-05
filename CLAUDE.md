@@ -159,7 +159,37 @@ docs/issues/
 
 ## 現在進行中の案件
 
-なし（次の案件: feat-009）
+**feat-009: Camera Calibration - Auto Capture (Stability Trigger)**
+
+- ステータス: **ドキュメント完了、レビュー済み → 実装待ち**
+- 案件フォルダ: `docs/issues/feat-009-manual-capture-calibration/`
+- 要求仕様書: `docs/issues/feat-009-manual-capture-calibration/requirements.md`
+- 機能設計書: `docs/issues/feat-009-manual-capture-calibration/design.md`
+
+### 実装手順
+
+1. `requirements.md` と `design.md` を読む
+2. `stability_trigger.py`（新規）を作成する
+3. `ui_calibration.py` を変更する（設計書セクション4.1〜4.6に従う）
+4. 単体テスト（`stability_trigger.py`）を作成・実行する
+5. 手動テスト（GUI統合テスト）を実施する
+
+### feat-009 のスコープ
+
+- **安定検出トリガーによる自動キャプチャ**（2.0秒連続成功→自動キャプチャ）
+- **クールダウン制御**（3.0秒、時間ベース）
+- **キャプチャリスト管理**（表示・削除・全クリア）
+- **キャプチャ時フィードバック**（ステータス表示、枠線フラッシュ）
+- **静止画保存（デバッグ用、UI ON/OFF）**: `captures/YYYYMMDD-HHMMSS/intrinsics/cam{serial}/capture_{番号:03d}.png`
+- **カメラ切替・タブ離脱時クリア**
+- スコープ外: キャリブレーション計算（feat-011）、ヒートマップ（feat-010）
+
+### 変更対象ファイル
+
+| ファイル | 変更種別 |
+|---------|---------|
+| `src/synchroCap/stability_trigger.py` | **新規作成** |
+| `src/synchroCap/ui_calibration.py` | **変更** |
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 
@@ -167,15 +197,24 @@ docs/issues/
 feat-008: ライブビュー + ボード検出 (Tab5追加) ← 完了
     │
     ▼
-feat-009: 手動キャプチャ + キャリブレーション計算 ← 次
-    ├──> feat-010: エクスポート (TOML/JSON)
-    ├──> feat-011: 自動キャプチャ + 品質チェック
-    ├──> feat-012: カバレッジヒートマップ + ガイド
-    └──> feat-013: セッション保存/再開（Board Settings の永続化を含む）
+feat-009: 自動キャプチャ（安定検出トリガー） ← 次
+    │
+    ▼
+feat-010: カバレッジヒートマップ
+    │
+    ▼
+feat-011: キャリブレーション計算 + 結果表示
+    │
+    ▼
+feat-012: エクスポート (Pose2Sim TOML + JSON)
+    │
+    ▼
+feat-013: セッション保存/再開（Board Settings の永続化を含む）
 ```
 
+- feat-009〜011は直列依存（各ステップが前のステップの成果物を前提とする）
+- feat-012, feat-013はfeat-011完了後に着手可能
 - feat-013: Board Settings（board_type, cols, rows, square_mm, marker_mm）の保存/復元を要件に含めること
-- feat-009〜013のドキュメントはfeat-008完了後に順次作成する
 - 全モジュールは `src/synchroCap/` 内に配置（SynchroCapの一部として統合）
 
 ### 設計ルール（全案件共通）
