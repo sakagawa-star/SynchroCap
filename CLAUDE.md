@@ -171,9 +171,10 @@ feat-009: 手動キャプチャ + キャリブレーション計算 ← 次
     ├──> feat-010: エクスポート (TOML/JSON)
     ├──> feat-011: 自動キャプチャ + 品質チェック
     ├──> feat-012: カバレッジヒートマップ + ガイド
-    └──> feat-013: セッション保存/再開
+    └──> feat-013: セッション保存/再開（Board Settings の永続化を含む）
 ```
 
+- feat-013: Board Settings（board_type, cols, rows, square_mm, marker_mm）の保存/復元を要件に含めること
 - feat-009〜013のドキュメントはfeat-008完了後に順次作成する
 - 全モジュールは `src/synchroCap/` 内に配置（SynchroCapの一部として統合）
 - 草案の全体像: `/home/sakagawa/Downloads/synchrocap_calibration_design.md`

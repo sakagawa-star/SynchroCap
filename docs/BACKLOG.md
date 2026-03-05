@@ -4,8 +4,6 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) | Bug | Calibration Board Settings 誤操作防止 | Done |
-| [feat-008](issues/feat-008-camera-calibration/) | Feature | Camera Calibration - Live View with Board Detection | Done |
 | feat-009 | Feature | Camera Calibration - Manual Capture + Calibration Calculation | Planned |
 | feat-010 | Feature | Camera Calibration - Export (Pose2Sim TOML + JSON) | Planned |
 | feat-011 | Feature | Camera Calibration - Auto Capture + Quality Check | Planned |
@@ -16,6 +14,8 @@
 
 | ID | Type | Title | Resolved |
 |----|------|-------|----------|
+| [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) | Bug | Calibration Board Settings 誤操作防止 | 2026-03-05 |
+| [feat-008](issues/feat-008-camera-calibration/) | Feature | Camera Calibration - Live View with Board Detection | 2026-03-05 |
 | [inv-002](issues/inv-002-device-timestamp-meaning/) | Investigation | device_timestamp_ns の意味の切り分け | 2026-02-25 |
 | [feat-007](issues/feat-007-camera-settings-viewer/) | Feature | Camera Settings Viewer (Tab4) | 2026-02-23 |
 | [feat-006](issues/feat-006-8cam-multi-view/) | Feature | Multi Viewの8カメラ対応 | 2026-02-12 |
