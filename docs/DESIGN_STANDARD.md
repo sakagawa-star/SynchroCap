@@ -98,16 +98,4 @@
 - 却下案とその理由
 を簡潔に記録する（ADR: Architecture Decision Recordの簡易版）
 これにより、Claude Codeが別の方法に変えてしまうことを防ぐ。
-```
 
----
-
-## 3つのファイルの関係
-```
-CLAUDE.md（1行ずつ参照を書くだけ）
-  ├─ 要求仕様書作成時 → docs/REQUIREMENTS_STANDARD.md に従え
-  ├─ 機能設計書作成時 → docs/DESIGN_STANDARD.md に従え
-  └─ レビュー実行時   → docs/REVIEW_CRITERIA.md に従え
-
-.claude/commands/review.md（Slashコマンド）
-  └─ /review で3つの基準すべてを踏まえてレビュー実行
