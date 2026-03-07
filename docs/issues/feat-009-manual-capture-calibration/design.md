@@ -1,7 +1,7 @@
 # 機能設計書: Camera Calibration - Auto Capture (Stability Trigger)
 
 対象: feat-009
-作成日: 2026-03-05
+作成日: 2026-03-07 (再作成)
 基準文書: `docs/DESIGN_STANDARD.md`
 要求仕様書: `docs/issues/feat-009-manual-capture-calibration/requirements.md`
 
@@ -246,7 +246,24 @@ class StabilityTrigger:
 
 #### ui_calibration.py でのキャプチャ実行
 
-`_process_latest_frame()` 内で `StabilityTrigger.update()` を呼び、`triggered == True` の場合にキャプチャを実行する。
+`_process_latest_frame()` を変更する。現在のコード（`ui_calibration.py:313-326`）:
+
+```python
+# 現在のコード
+def _process_latest_frame(self) -> None:
+    frame = self._latest_frame
+    if frame is None:
+        return
+    self._latest_frame = None
+    bgr = frame
+    result = self._detector.detect(bgr)
+    if result.success:
+        bgr = self._detector.draw_overlay(bgr, result)
+    self._update_detection_status(result)
+    self._display_frame(bgr)
+```
+
+変更後:
 
 ```python
 def _process_latest_frame(self) -> None:
@@ -258,9 +275,8 @@ def _process_latest_frame(self) -> None:
     bgr = frame
     result = self._detector.detect(bgr)
 
-    # draw_overlay() は引数のフレームを変更せず、コピーを返す（board_detector.py で確認済み）。
+    # draw_overlay() はコピーを返す（board_detector.py:227）。
     # bgr（raw）と overlay_bgr を分離することで、_execute_capture() に両方を渡せる。
-    # 既存コードでは bgr 変数を再代入で上書きしていたが、ここでは別変数に受ける。
     if result.success:
         overlay_bgr = self._detector.draw_overlay(bgr, result)
     else:
@@ -272,10 +288,15 @@ def _process_latest_frame(self) -> None:
     if state.triggered and result.success:
         self._execute_capture(result, bgr, overlay_bgr)
 
-    # ステータス表示の更新（既存の _update_detection_status() を置き換える。削除する）
+    # ステータス表示の更新（既存の _update_detection_status() を置き換え）
     self._update_status_display(result, state)
     self._display_frame(overlay_bgr)
 ```
+
+**変更ポイント**:
+- `bgr` 変数の再代入（`bgr = self._detector.draw_overlay(bgr, result)`）をやめ、`overlay_bgr` として別変数に受ける
+- `_update_detection_status()` を `_update_status_display()` に置き換える（StabilityStateも受け取る）
+- `_update_detection_status()` メソッドは削除する
 
 #### キャプチャデータの保持
 
@@ -289,10 +310,12 @@ class CaptureData:
     num_corners: int
 ```
 
-メンバー変数:
-- `self._captures: list[CaptureData]` — キャプチャリスト
-- `self._capture_image_size: tuple[int, int] | None` — 最初のキャプチャの画像サイズ (width, height)
-- `self._capture_counter: int` — セッション内の累積キャプチャカウンタ（0始まり）。キャプチャ実行時にインクリメントされる。キャプチャ削除では減らない。クリア時のみ0にリセットされる。静止画保存のファイル番号に使用する
+`CaptureData` は `ui_calibration.py` のモジュールレベルで定義する（`CalibrationWidget` の外側、import 群の後）。
+
+メンバー変数（`CalibrationWidget.__init__()` に追加）:
+- `self._captures: list[CaptureData]` — キャプチャリスト。初期値: `[]`
+- `self._capture_image_size: tuple[int, int] | None` — 最初のキャプチャの画像サイズ (width, height)。初期値: `None`
+- `self._capture_counter: int` — セッション内の累積キャプチャカウンタ（0始まり）。キャプチャ実行時にインクリメントされる。キャプチャ削除では減らない。クリア時のみ0にリセットされる。静止画保存のファイル番号に使用する。初期値: `0`
 
 #### キャプチャ実行処理
 
@@ -409,6 +432,8 @@ def _on_delete_clicked(self) -> None:
     self._captures.pop(row)
     if not self._captures:
         self._capture_image_size = None
+        self._capture_counter = 0
+        self._session_dir = None
     self._update_capture_list_ui()
     self._update_button_states()
     logger.info("Deleted capture #%d", row + 1)
@@ -499,27 +524,73 @@ def _update_status_display(self, result: DetectionResult, state: StabilityState)
 
 キャプチャ成功時にライブビューの枠線を緑色にフラッシュする。
 
+**QLabel に直接 border を設定してはならない**（`_display_frame()` の `pixmap.scaled(label.size())` とのフィードバックループでウィンドウが無限拡大する既知の問題）。QFrame で QLabel を包み、QFrame の border を操作する。
+
+##### UIレイアウトの変更
+
+`_create_ui()` 内で、`_live_view_label` を QFrame で包む:
+
 ```python
-# クラス定数としてCalibrationWidgetに定義する。
-# 既存コードの _create_ui() 内のハードコーディングされたスタイルシートもこの定数を使うように統一する。
+# 変更前（ui_calibration.py:200-203）:
+# self._live_view_label = QLabel("カメラを選択してください")
+# self._live_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+# self._live_view_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
+# right_layout.addWidget(self._live_view_label, stretch=1)
+
+# 変更後:
+self._live_view_frame = QFrame()
+self._live_view_frame.setFrameShape(QFrame.Shape.NoFrame)
+self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
+frame_inner_layout = QVBoxLayout(self._live_view_frame)
+frame_inner_layout.setContentsMargins(0, 0, 0, 0)
+
+self._live_view_label = QLabel("カメラを選択してください")
+self._live_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+self._live_view_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
+# setPixmap() で sizeHint が pixmap サイズに変わり、レイアウトがそれに追従して
+# QFrame が拡大 → label.size() が拡大 → scaled pixmap が拡大 → 無限ループとなる
+# 既知の問題を防止するため、sizeHint を無視するポリシーを設定する
+self._live_view_label.setSizePolicy(
+    QSizePolicy.Policy.Ignored,
+    QSizePolicy.Policy.Ignored,
+)
+frame_inner_layout.addWidget(self._live_view_label)
+
+right_layout.addWidget(self._live_view_frame, stretch=1)
+```
+
+##### フラッシュの実装
+
+```python
 _FLASH_DURATION_MS: int = 300
-_FLASH_STYLE: str = "background-color: #1a1a1a; color: #888; border: 3px solid #00cc00;"
-_NORMAL_STYLE: str = "background-color: #1a1a1a; color: #888;"
+_FLASH_BORDER: str = "border: 3px solid #00cc00;"
+_NORMAL_BORDER: str = ""
 
 def _flash_live_view(self) -> None:
-    """ライブビューの枠線を一瞬緑色にフラッシュする。"""
-    self._live_view_label.setStyleSheet(self._FLASH_STYLE)
+    """ライブビューの枠線を一瞬緑色にフラッシュする。QFrame の border を操作する。"""
+    self._live_view_frame.setStyleSheet(
+        f"background-color: #1a1a1a; {self._FLASH_BORDER}"
+    )
     QTimer.singleShot(self._FLASH_DURATION_MS, self._reset_live_view_style)
 
 def _reset_live_view_style(self) -> None:
     """フラッシュを元に戻す。"""
-    self._live_view_label.setStyleSheet(self._NORMAL_STYLE)
+    self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
 ```
 
 **設計判断**: フラッシュ方式
-- 採用: QLabel の `setStyleSheet()` で枠線色を変更 + `QTimer.singleShot()` で復元（シンプル、追加ウィジェット不要）
+- 採用: QFrame wrapper の border を操作 + `QTimer.singleShot()` で復元（QLabel borderの既知の問題を回避しつつシンプル）
+- 却下: QLabel の `setStyleSheet()` で直接 border を設定（フィードバックループでウィンドウが無限拡大する既知の問題あり）
 - 却下: QPropertyAnimation（オーバーエンジニアリング）
-- 却下: 音声フィードバック（QSound / QMediaPlayer）（システム依存、追加ライブラリ不要の方針に反する）
+
+##### stop_live_view() での対応
+
+`stop_live_view()` で `_live_view_frame` のスタイルもリセットする:
+
+```python
+# stop_live_view() に追加:
+self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
+```
 
 ### 4.5 静止画保存（FR-005）
 
@@ -538,7 +609,7 @@ captures_layout.addWidget(self._save_images_check)
 キャプチャセッションごとにタイムスタンプディレクトリを作成する。
 
 メンバー変数:
-- `self._session_dir: Path | None` — 現在のセッションの保存ディレクトリ。最初のキャプチャ時に作成される
+- `self._session_dir: Path | None` — 現在のセッションの保存ディレクトリ。最初のキャプチャ時に作成される。初期値: `None`
 
 ```python
 from datetime import datetime
@@ -632,7 +703,7 @@ def stop_live_view(self) -> None:
     self._current_serial = ""
     self._live_view_label.clear()
     self._live_view_label.setText("カメラを選択してください")
-    self._live_view_label.setStyleSheet(self._NORMAL_STYLE)  # 追加
+    self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")  # 追加: フラッシュリセット
     self._status_label.setText("Ready")
     # キャプチャクリア（追加）
     self._captures.clear()
@@ -645,7 +716,7 @@ def stop_live_view(self) -> None:
 ```
 
 **設計判断**: stop_live_view() でキャプチャクリアする
-- 採用: `stop_live_view()` にクリア処理を追加（タブ離脱、カメラ切り替え、カメラ切断の全ケースで確実にクリアされる）
+- 採用: `stop_live_view()` にクリア処理を追加（タブ離脱、カメラ切り替え、カメラ切断の全ケースで確実にクリアされる。`mainwindow.py:248` の `onTabChanged()` → `_stop_calibration_if_active()` → `stop_live_view()` と、`ui_calibration.py:253` の `_on_camera_clicked()` → `stop_live_view()` の両方の経路をカバーする）
 - 却下: `_on_camera_clicked()` のみでクリア（タブ離脱やカメラ切断時にクリアされない恐れがある）
 
 ---
@@ -654,7 +725,7 @@ def stop_live_view(self) -> None:
 
 ### 5.1 CalibrationWidgetの状態遷移
 
-feat-008の状態を維持（Idle, Connecting, LiveView）。Calibrating状態はfeat-009では追加しない（キャリブレーション計算はfeat-011）。
+feat-008の状態を維持（Idle, Connecting, LiveView）。
 
 ```
 [Idle] --(カメラクリック)--> [Connecting]
@@ -749,7 +820,18 @@ class StabilityTrigger:
 
 ### 7.2 ui_calibration.py（変更分のみ）
 
-既存の `CalibrationWidget` クラスに以下を追加:
+既存の `CalibrationWidget` クラスに以下を追加する。
+import に `QCheckBox`, `QFrame`, `QScrollArea`, `QSizePolicy` を追加する（`QCheckBox` は既存importになければ追加。`QFrame`, `QScrollArea`, `QSizePolicy` は新規）:
+
+```python
+from PySide6.QtWidgets import (
+    # 既存の import に以下を追加:
+    QCheckBox,
+    QFrame,
+    QScrollArea,
+    QSizePolicy,
+)
+```
 
 ```python
 class CalibrationWidget(QWidget):
@@ -761,6 +843,8 @@ class CalibrationWidget(QWidget):
     # self._stability_trigger: StabilityTrigger
 
     # -- 追加UIウィジェット --
+    # self._live_view_frame: QFrame (QLabel wrapper、フラッシュ用)
+    # self._live_view_label: setSizePolicy(Ignored, Ignored) を追加（無限拡大防止）
     # self._captures_list: QListWidget
     # self._delete_button: QPushButton
     # self._clear_all_button: QPushButton
@@ -799,7 +883,7 @@ class CalibrationWidget(QWidget):
         """検出結果と安定判定状態に基づいてステータスを更新"""
 
     def _flash_live_view(self) -> None:
-        """ライブビューの枠線を一瞬緑色にフラッシュ"""
+        """ライブビューの枠線を一瞬緑色にフラッシュ（QFrameのborderを操作）"""
 
     def _reset_live_view_style(self) -> None:
         """フラッシュを元に戻す"""
@@ -822,8 +906,8 @@ class CalibrationWidget(QWidget):
 |Camera    |  Status (QLabel) |  ← 既存と同じくライブビューの上に配置（変更なし）
 |List      |------------------|
 |(QList)   |   Live View      |
-|----------|   (QLabel)       |
-|Board     |                  |
+|----------|   (QFrame >      |  ← QFrame wrapper 追加（フラッシュ用）
+|Board     |    QLabel)       |
 |Settings  |                  |
 |----------|                  |
 |Captures  |                  |
@@ -841,10 +925,16 @@ QScrollArea: 固定幅220px（200 + スクロールバー幅の余裕）で left
 2. Board Settings（QGroupBox）-- 既存
 3. Captures（QGroupBox）-- 新規
 
-左パネルの `addStretch()` を削除し、上記3つのグループボックスをすべて追加する。左パネルの縦方向にコンテンツが収まりきらない場合に備え、左パネル全体をQScrollArea内に配置する。
+左パネルの `addStretch()` （`ui_calibration.py:186`）を削除し、上記3つのグループボックスをすべて追加する。左パネルの縦方向にコンテンツが収まりきらない場合に備え、左パネル全体をQScrollArea内に配置する。
 
 ```python
 # 左パネルをスクロール可能にする
+# 変更前（ui_calibration.py:188-189）:
+# left_panel.setFixedWidth(200)
+# splitter.addWidget(left_panel)
+
+# 変更後:
+left_panel.setFixedWidth(200)
 scroll_area = QScrollArea()
 scroll_area.setWidgetResizable(True)
 scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -852,9 +942,6 @@ scroll_area.setWidget(left_panel)
 scroll_area.setFixedWidth(220)  # 200 + スクロールバー幅の余裕
 splitter.addWidget(scroll_area)
 ```
-
-**設計判断**: 旧ドキュメントにあったResults QGroupBoxを削除
-- 理由: キャリブレーション計算・結果表示はfeat-011のスコープ。feat-009ではCaptures QGroupBoxのみ追加する
 
 ---
 
