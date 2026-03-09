@@ -40,6 +40,7 @@ SynchroCap/
 │       ├── ui_camera_settings_viewer.py  # Tab4: カメラ設定ビューア
 │       ├── ui_calibration.py        # Tab5: キャリブレーション
 │       ├── board_detector.py        # ChArUcoボード検出
+│       ├── stability_trigger.py     # 安定検出トリガーエンジン
 │       ├── recording_controller.py  # 録画制御ロジック
 │       ├── channel_registry.py      # チャンネル登録管理
 │       ├── device_resolver.py       # シリアル→DeviceInfo解決
@@ -185,37 +186,7 @@ docs/issues/
 
 ## 現在進行中の案件
 
-**feat-009: Camera Calibration - Auto Capture (Stability Trigger)**
-
-- ステータス: **ドキュメント完了、レビュー済み → 実装待ち**
-- 案件フォルダ: `docs/issues/feat-009-manual-capture-calibration/`
-- 要求仕様書: `docs/issues/feat-009-manual-capture-calibration/requirements.md`
-- 機能設計書: `docs/issues/feat-009-manual-capture-calibration/design.md`
-
-### 実装手順
-
-1. `requirements.md` と `design.md` を読む
-2. `stability_trigger.py`（新規）を作成する
-3. `ui_calibration.py` を変更する（設計書セクション4.1〜4.6に従う）
-4. 単体テスト（`stability_trigger.py`）を作成・実行する
-5. 手動テスト（GUI統合テスト）を実施する
-
-### feat-009 のスコープ
-
-- **安定検出トリガーによる自動キャプチャ**（2.0秒連続成功→自動キャプチャ）
-- **クールダウン制御**（3.0秒、時間ベース）
-- **キャプチャリスト管理**（表示・削除・全クリア）
-- **キャプチャ時フィードバック**（ステータス表示、枠線フラッシュ）
-- **静止画保存（デバッグ用、UI ON/OFF）**: `captures/YYYYMMDD-HHMMSS/intrinsics/cam{serial}/capture_{番号:03d}.png`
-- **カメラ切替・タブ離脱時クリア**
-- スコープ外: キャリブレーション計算（feat-011）、ヒートマップ（feat-010）
-
-### 変更対象ファイル
-
-| ファイル | 変更種別 |
-|---------|---------|
-| `src/synchroCap/stability_trigger.py` | **新規作成** |
-| `src/synchroCap/ui_calibration.py` | **変更** |
+なし
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 
@@ -250,6 +221,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **feat-009**: Camera Calibration - Auto Capture (Stability Trigger) → `docs/issues/feat-009-manual-capture-calibration/`
 - **bug-007**: Calibration Board Settings 誤操作防止 → `docs/issues/bug-007-calibration-spinbox-wheel-scroll/`
 - **feat-008**: Camera Calibration - Live View with Board Detection → `docs/issues/feat-008-camera-calibration/`
 - **inv-002**: `device_timestamp_ns` の意味の切り分け → `tools/timestamp_test.py` (ソフトウェアトリガー + TIMESTAMP_LATCH 方式)

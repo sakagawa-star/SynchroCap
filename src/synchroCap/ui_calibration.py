@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import cv2
 import imagingcontrol4 as ic4
@@ -14,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFrame,
     QGroupBox,
     QFormLayout,
     QHBoxLayout,
@@ -21,6 +25,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -29,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from board_detector import BoardDetector, DetectionResult
 from channel_registry import ChannelRegistry
+from stability_trigger import Phase, StabilityState, StabilityTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +44,16 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     level=logging.INFO,
 )
+
+
+@dataclass
+class CaptureData:
+    """Data from a single calibration capture."""
+    image_points: numpy.ndarray    # shape=(N,1,2), float32
+    object_points: numpy.ndarray   # shape=(N,1,3), float32
+    charuco_ids: numpy.ndarray | None  # shape=(N,1), int32 (ChArUco only)
+    num_corners: int
+    raw_bgr: numpy.ndarray         # raw frame without overlay (for saving)
 
 
 class _CalibSinkListener(ic4.QueueSinkListener):
@@ -93,6 +110,13 @@ class CalibrationWidget(QWidget):
         # Board detector
         self._detector = BoardDetector()
 
+        # Stability trigger
+        self._stability_trigger = StabilityTrigger()
+
+        # Capture state
+        self._captures: list[CaptureData] = []
+        self._capture_image_size: tuple[int, int] | None = None
+
         # Frame processing timer
         self._frame_timer = QTimer(self)
         self._frame_timer.setInterval(33)  # ~30FPS
@@ -124,7 +148,14 @@ class CalibrationWidget(QWidget):
         self._current_serial = ""
         self._live_view_label.clear()
         self._live_view_label.setText("カメラを選択してください")
+        self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
         self._status_label.setText("Ready")
+        # Clear captures
+        self._captures.clear()
+        self._capture_image_size = None
+        self._stability_trigger.reset()
+        self._update_capture_list_ui()
+        self._update_button_states()
 
     # ── UI construction ──
 
@@ -183,10 +214,41 @@ class CalibrationWidget(QWidget):
         board_form.addRow("Marker size:", self._marker_button)
 
         left_layout.addWidget(board_group)
-        left_layout.addStretch()
+
+        # Captures section
+        captures_group = QGroupBox("Captures")
+        captures_layout = QVBoxLayout(captures_group)
+
+        self._captures_list = QListWidget()
+        self._captures_list.currentRowChanged.connect(self._update_button_states)
+        captures_layout.addWidget(self._captures_list)
+
+        captures_btn_layout = QHBoxLayout()
+        self._delete_button = QPushButton("Delete")
+        self._delete_button.setEnabled(False)
+        self._delete_button.clicked.connect(self._on_delete_clicked)
+        captures_btn_layout.addWidget(self._delete_button)
+
+        self._clear_all_button = QPushButton("Clear All")
+        self._clear_all_button.setEnabled(False)
+        self._clear_all_button.clicked.connect(self._on_clear_all_clicked)
+        captures_btn_layout.addWidget(self._clear_all_button)
+        captures_layout.addLayout(captures_btn_layout)
+
+        self._save_button = QPushButton("Save")
+        self._save_button.setEnabled(False)
+        self._save_button.clicked.connect(self._on_save_clicked)
+        captures_layout.addWidget(self._save_button)
+
+        left_layout.addWidget(captures_group)
 
         left_panel.setFixedWidth(200)
-        splitter.addWidget(left_panel)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setWidget(left_panel)
+        scroll_area.setFixedWidth(220)
+        splitter.addWidget(scroll_area)
 
         # ── Right panel ──
         right_panel = QWidget()
@@ -197,10 +259,22 @@ class CalibrationWidget(QWidget):
         self._status_label.setFixedHeight(24)
         right_layout.addWidget(self._status_label, stretch=0)
 
+        self._live_view_frame = QFrame()
+        self._live_view_frame.setFrameShape(QFrame.Shape.NoFrame)
+        self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
+        frame_inner_layout = QVBoxLayout(self._live_view_frame)
+        frame_inner_layout.setContentsMargins(0, 0, 0, 0)
+
         self._live_view_label = QLabel("カメラを選択してください")
         self._live_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._live_view_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
-        right_layout.addWidget(self._live_view_label, stretch=1)
+        self._live_view_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Ignored,
+        )
+        frame_inner_layout.addWidget(self._live_view_label)
+
+        right_layout.addWidget(self._live_view_frame, stretch=1)
 
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 0)
@@ -321,9 +395,17 @@ class CalibrationWidget(QWidget):
 
         result = self._detector.detect(bgr)
         if result.success:
-            bgr = self._detector.draw_overlay(bgr, result)
-        self._update_detection_status(result)
-        self._display_frame(bgr)
+            overlay_bgr = self._detector.draw_overlay(bgr, result)
+        else:
+            overlay_bgr = bgr
+
+        state = self._stability_trigger.update(result.success)
+
+        if state.triggered and result.success:
+            self._execute_capture(result, bgr)
+
+        self._update_status_display(result, state)
+        self._display_frame(overlay_bgr)
 
     def _display_frame(self, bgr: numpy.ndarray) -> None:
         """Display BGR image on QLabel with aspect ratio preserved."""
@@ -342,17 +424,145 @@ class CalibrationWidget(QWidget):
         )
         self._live_view_label.setPixmap(scaled)
 
-    def _update_detection_status(self, result: DetectionResult) -> None:
-        """Update status label with detection result."""
+    def _update_status_display(self, result: DetectionResult, state: StabilityState) -> None:
+        """Update status label based on detection result and stability state."""
+        if state.triggered:
+            return  # _execute_capture() sets the status
+
+        if state.phase == Phase.COOLDOWN:
+            self._status_label.setText(f"Cooldown: {state.cooldown_remaining:.1f}s")
+            return
+
         if result.success:
             total = self._detector.max_corners
-            self._status_label.setText(
-                f"Detected: {result.num_corners}/{total} corners"
-            )
+            if state.stability_elapsed > 0:
+                self._status_label.setText(
+                    f"Detected: {result.num_corners}/{total} | "
+                    f"Stability: {state.stability_elapsed:.1f}s / "
+                    f"{StabilityTrigger.STABILITY_THRESHOLD:.1f}s"
+                )
+            else:
+                self._status_label.setText(
+                    f"Detected: {result.num_corners}/{total} corners"
+                )
         elif result.failure_reason:
             self._status_label.setText(result.failure_reason)
         else:
             self._status_label.setText("No board detected")
+
+    # ── Capture ──
+
+    _FLASH_DURATION_MS: int = 300
+    _FLASH_BORDER: str = "border: 3px solid #00cc00;"
+
+    def _execute_capture(
+        self,
+        result: DetectionResult,
+        raw_bgr: numpy.ndarray,
+    ) -> None:
+        """Execute capture on stability trigger."""
+        h, w = raw_bgr.shape[:2]
+        current_size = (w, h)
+
+        if self._capture_image_size is None:
+            self._capture_image_size = current_size
+        elif self._capture_image_size != current_size:
+            self._status_label.setText("Image size mismatch")
+            logger.warning("Image size mismatch: expected %s, got %s",
+                           self._capture_image_size, current_size)
+            return
+
+        capture = CaptureData(
+            image_points=result.image_points.copy(),
+            object_points=result.object_points.copy(),
+            charuco_ids=result.charuco_ids.copy() if result.charuco_ids is not None else None,
+            num_corners=result.num_corners,
+            raw_bgr=raw_bgr.copy(),
+        )
+        self._captures.append(capture)
+        n = len(self._captures)
+
+        self._update_capture_list_ui()
+        self._update_button_states()
+        self._flash_live_view()
+
+        self._status_label.setText(f"Captured #{n} ({capture.num_corners} corners)")
+        logger.info("Capture #%d: %d corners", n, capture.num_corners)
+
+    def _flash_live_view(self) -> None:
+        """Flash the live view border green briefly."""
+        self._live_view_frame.setStyleSheet(
+            f"background-color: #1a1a1a; {self._FLASH_BORDER}"
+        )
+        QTimer.singleShot(self._FLASH_DURATION_MS, self._reset_live_view_style)
+
+    def _reset_live_view_style(self) -> None:
+        """Reset live view frame style after flash."""
+        self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
+
+    def _update_capture_list_ui(self) -> None:
+        """Rebuild the captures QListWidget."""
+        self._captures_list.clear()
+        for i, cap in enumerate(self._captures):
+            self._captures_list.addItem(f"#{i+1:02d}: {cap.num_corners} corners")
+
+    def _update_button_states(self, _row: int = -1) -> None:
+        """Update Delete/Clear All button enabled states."""
+        has_captures = len(self._captures) > 0
+        has_selection = self._captures_list.currentRow() >= 0
+
+        self._delete_button.setEnabled(has_captures and has_selection)
+        self._clear_all_button.setEnabled(has_captures)
+        self._save_button.setEnabled(has_captures)
+
+    def _on_delete_clicked(self) -> None:
+        """Delete selected capture."""
+        row = self._captures_list.currentRow()
+        if row < 0 or row >= len(self._captures):
+            return
+        self._captures.pop(row)
+        if not self._captures:
+            self._capture_image_size = None
+        self._update_capture_list_ui()
+        self._update_button_states()
+        logger.info("Deleted capture #%d", row + 1)
+
+    def _on_clear_all_clicked(self) -> None:
+        """Clear all captures."""
+        self._captures.clear()
+        self._capture_image_size = None
+        self._update_capture_list_ui()
+        self._update_button_states()
+        logger.info("Cleared all captures")
+
+    # ── Image saving ──
+
+    def _on_save_clicked(self) -> None:
+        """Save all captured raw frames as PNG files."""
+        if not self._captures:
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        cam_dir = Path("captures") / timestamp / "intrinsics" / f"cam{self._current_serial}"
+        try:
+            cam_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.error("Failed to create save dir %s: %s", cam_dir, e)
+            self._status_label.setText(f"Save failed: {e}")
+            return
+
+        saved = 0
+        for i, cap in enumerate(self._captures):
+            filename = f"capture_{i+1:03d}.png"
+            filepath = cam_dir / filename
+            try:
+                cv2.imwrite(str(filepath), cap.raw_bgr)
+                saved += 1
+            except Exception as e:
+                logger.error("Failed to save %s: %s", filepath, e)
+
+        self._status_label.setText(f"Saved {saved} images to {cam_dir}")
+        logger.info("Saved %d images to %s", saved, cam_dir)
 
     # ── Board settings ──
 

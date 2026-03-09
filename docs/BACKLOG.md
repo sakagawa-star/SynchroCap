@@ -4,7 +4,7 @@
 
 | ID | Type | Title | Status |
 |----|------|-------|--------|
-| feat-009 | Feature | Camera Calibration - Auto Capture (Stability Trigger) | In Progress |
+| feat-009 | Feature | Camera Calibration - Auto Capture (Stability Trigger) | Closed |
 | feat-010 | Feature | Camera Calibration - Coverage Heatmap | Planned |
 | feat-011 | Feature | Camera Calibration - Calibration Calculation + Result Display | Planned |
 | feat-012 | Feature | Camera Calibration - Export (Pose2Sim TOML + JSON) | Planned |

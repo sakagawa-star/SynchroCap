@@ -286,7 +286,7 @@ def _process_latest_frame(self) -> None:
     state = self._stability_trigger.update(result.success)
 
     if state.triggered and result.success:
-        self._execute_capture(result, bgr, overlay_bgr)
+        self._execute_capture(result, bgr)
 
     # ステータス表示の更新（既存の _update_detection_status() を置き換え）
     self._update_status_display(result, state)
@@ -308,6 +308,7 @@ class CaptureData:
     object_points: numpy.ndarray  # shape=(N,1,3), float32
     charuco_ids: numpy.ndarray | None  # shape=(N,1), int32 (ChArUco only)
     num_corners: int
+    raw_bgr: numpy.ndarray        # オーバーレイなしの生フレーム（保存用）
 ```
 
 `CaptureData` は `ui_calibration.py` のモジュールレベルで定義する（`CalibrationWidget` の外側、import 群の後）。
@@ -315,7 +316,6 @@ class CaptureData:
 メンバー変数（`CalibrationWidget.__init__()` に追加）:
 - `self._captures: list[CaptureData]` — キャプチャリスト。初期値: `[]`
 - `self._capture_image_size: tuple[int, int] | None` — 最初のキャプチャの画像サイズ (width, height)。初期値: `None`
-- `self._capture_counter: int` — セッション内の累積キャプチャカウンタ（0始まり）。キャプチャ実行時にインクリメントされる。キャプチャ削除では減らない。クリア時のみ0にリセットされる。静止画保存のファイル番号に使用する。初期値: `0`
 
 #### キャプチャ実行処理
 
@@ -324,14 +324,12 @@ def _execute_capture(
     self,
     result: DetectionResult,
     raw_bgr: numpy.ndarray,
-    overlay_bgr: numpy.ndarray,
 ) -> None:
     """安定判定成立時のキャプチャ実行処理。
 
     Args:
         result: 直近の検出結果（success==Trueが保証されている）
-        raw_bgr: オーバーレイなしのBGRフレーム（image_size取得用）
-        overlay_bgr: オーバーレイ描画済みのBGRフレーム（静止画保存用）
+        raw_bgr: オーバーレイなしのBGRフレーム（image_size取得用、保存用）
     """
     h, w = raw_bgr.shape[:2]
     current_size = (w, h)
@@ -350,19 +348,14 @@ def _execute_capture(
         object_points=result.object_points.copy(),
         charuco_ids=result.charuco_ids.copy() if result.charuco_ids is not None else None,
         num_corners=result.num_corners,
+        raw_bgr=raw_bgr.copy(),
     )
     self._captures.append(capture)
-    self._capture_counter += 1
     n = len(self._captures)
 
     self._update_capture_list_ui()
     self._update_button_states()
     self._flash_live_view()
-
-    # 静止画保存（FR-005）
-    # ファイル番号は累積カウンタを使用する（削除による番号重複・上書きを防止）
-    if self._save_images_check.isChecked():
-        self._save_capture_image(overlay_bgr, self._capture_counter)
 
     self._status_label.setText(f"Captured #{n} ({capture.num_corners} corners)")
     logger.info("Capture #%d: %d corners", n, capture.num_corners)
@@ -418,6 +411,11 @@ self._clear_all_button.setEnabled(False)
 self._clear_all_button.clicked.connect(self._on_clear_all_clicked)
 captures_btn_layout.addWidget(self._clear_all_button)
 captures_layout.addLayout(captures_btn_layout)
+
+self._save_button = QPushButton("Save")
+self._save_button.setEnabled(False)
+self._save_button.clicked.connect(self._on_save_clicked)
+captures_layout.addWidget(self._save_button)
 ```
 
 `_captures_list` の `currentRowChanged` シグナルを `_update_button_states` に接続して、選択変更時にDeleteボタンの有効/無効を更新する。
@@ -432,8 +430,6 @@ def _on_delete_clicked(self) -> None:
     self._captures.pop(row)
     if not self._captures:
         self._capture_image_size = None
-        self._capture_counter = 0
-        self._session_dir = None
     self._update_capture_list_ui()
     self._update_button_states()
     logger.info("Deleted capture #%d", row + 1)
@@ -445,8 +441,6 @@ def _on_delete_clicked(self) -> None:
 def _on_clear_all_clicked(self) -> None:
     self._captures.clear()
     self._capture_image_size = None
-    self._capture_counter = 0
-    self._session_dir = None  # 次のキャプチャで新しいセッションディレクトリを作成
     self._update_capture_list_ui()
     self._update_button_states()
     logger.info("Cleared all captures")
@@ -470,6 +464,7 @@ def _update_button_states(self) -> None:
 
     self._delete_button.setEnabled(has_captures and has_selection)
     self._clear_all_button.setEnabled(has_captures)
+    self._save_button.setEnabled(has_captures)
 ```
 
 #### エラーハンドリング
@@ -592,91 +587,89 @@ def _reset_live_view_style(self) -> None:
 self._live_view_frame.setStyleSheet("background-color: #1a1a1a;")
 ```
 
-### 4.5 静止画保存（FR-005）
+### 4.5 静止画一括保存（FR-005）
 
 #### UI構成
 
-左パネルの Captures GroupBox 内にチェックボックスを追加する。
+左パネルの Captures GroupBox 内に「Save」ボタンを追加する（Delete/Clear All ボタンの行の下）。
 
 ```python
-self._save_images_check = QCheckBox("Save Images")
-self._save_images_check.setChecked(False)  # デフォルトOFF
-captures_layout.addWidget(self._save_images_check)
+self._save_button = QPushButton("Save")
+self._save_button.setEnabled(False)
+self._save_button.clicked.connect(self._on_save_clicked)
+captures_layout.addWidget(self._save_button)
 ```
 
-#### 保存パス管理
+`_update_button_states()` で `_save_button` の有効/無効を制御する:
+```python
+self._save_button.setEnabled(has_captures)
+```
 
-キャプチャセッションごとにタイムスタンプディレクトリを作成する。
+#### CaptureData への raw_bgr 追加
 
-メンバー変数:
-- `self._session_dir: Path | None` — 現在のセッションの保存ディレクトリ。最初のキャプチャ時に作成される。初期値: `None`
+`CaptureData` に `raw_bgr: numpy.ndarray` フィールドを追加する。`_execute_capture()` で `raw_bgr.copy()` を保持する。保存時にこの生フレームを使用する。
+
+#### 保存処理
 
 ```python
-from datetime import datetime
-from pathlib import Path
-
-def _ensure_session_dir(self) -> Path | None:
-    """セッションディレクトリを作成して返す。既に作成済みならそのまま返す。
-
-    Returns:
-        Path: セッションディレクトリのパス
-        None: 作成に失敗した場合
-    """
-    if self._session_dir is not None:
-        return self._session_dir
+def _on_save_clicked(self) -> None:
+    """Save all captured raw frames as PNG files."""
+    if not self._captures:
+        return
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     cam_dir = Path("captures") / timestamp / "intrinsics" / f"cam{self._current_serial}"
     try:
         cam_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        logger.error("Failed to create session dir %s: %s", cam_dir, e)
+        logger.error("Failed to create save dir %s: %s", cam_dir, e)
         self._status_label.setText(f"Save failed: {e}")
-        return None
-
-    self._session_dir = cam_dir
-    logger.info("Session dir created: %s", cam_dir)
-    return cam_dir
-```
-
-#### 静止画保存処理
-
-```python
-def _save_capture_image(self, overlay_bgr: numpy.ndarray, capture_number: int) -> None:
-    """キャプチャ画像をPNGファイルとして保存する。
-
-    Args:
-        overlay_bgr: オーバーレイ描画済みのBGRフレーム
-        capture_number: キャプチャ番号（1始まり）
-    """
-    cam_dir = self._ensure_session_dir()
-    if cam_dir is None:
         return
 
-    filename = f"capture_{capture_number:03d}.png"
-    filepath = cam_dir / filename
-    try:
-        cv2.imwrite(str(filepath), overlay_bgr)
-        logger.info("Saved capture image: %s", filepath)
-    except Exception as e:
-        logger.error("Failed to save capture image %s: %s", filepath, e)
-        self._status_label.setText(f"Save failed: {e}")
+    saved = 0
+    for i, cap in enumerate(self._captures):
+        filename = f"capture_{i+1:03d}.png"
+        filepath = cam_dir / filename
+        try:
+            cv2.imwrite(str(filepath), cap.raw_bgr)
+            saved += 1
+        except Exception as e:
+            logger.error("Failed to save %s: %s", filepath, e)
+
+    self._status_label.setText(f"Saved {saved} images to {cam_dir}")
+    logger.info("Saved %d images to %s", saved, cam_dir)
 ```
 
 **設計判断**: 保存する画像
-- 採用: オーバーレイ描画済みフレーム（デバッグ用途なので検出結果が可視化されている方が有用）
-- 却下: 生フレーム（検出結果が見えないとデバッグに不便）
+- 採用: 生フレーム（オーバーレイなし）。キャリブレーション計算の入力データとしても利用可能
+- 却下: オーバーレイ描画済みフレーム（ユーザーフィードバックにより不採用）
 
 **設計判断**: 保存タイミング
-- 採用: メインスレッドで同期保存（HD解像度のPNG保存は50ms以下。QTimerの33ms間隔に対して1フレーム遅延する可能性があるが、キャプチャは数秒に1回なので問題ない）
-- 却下: バックグラウンドスレッドで非同期保存（数秒に1回の保存にスレッド管理のコストは見合わない）
+- 採用: ボタン押下時に全キャプチャを一括保存（ユーザーが保存タイミングを制御できる）
+- 却下: キャプチャ時の自動保存（ユーザーフィードバックにより不採用）
+
+**設計判断**: メモリ使用量
+- CaptureData に raw_bgr（HD解像度で約6MB/枚）を保持するため、キャプチャ数に比例してメモリ使用量が増加する。キャリブレーションで必要なキャプチャ数は通常20〜30枚程度であり、合計120〜180MB。現代のPCでは問題ない
 
 #### エラーハンドリング
 
 | エラー | 検出方法 | リカバリ | ログ |
 |--------|---------|---------|------|
-| ディレクトリ作成失敗 | OSError catch | ステータスに表示、保存スキップ（キャプチャは保持） | ERROR |
-| imwrite 失敗 | Exception catch | ステータスに表示、保存スキップ（キャプチャは保持） | ERROR |
+| ディレクトリ作成失敗 | OSError catch | ステータスに表示、保存中止（キャプチャは保持） | ERROR |
+| imwrite 失敗 | Exception catch | ステータスに表示、該当ファイルスキップして続行 | ERROR |
+
+#### 旧仕様からの削除対象
+
+以下のメンバー変数・メソッド・UIウィジェットは旧仕様（キャプチャ時自動保存）のもので、改訂により不要になった。実装時に削除すること:
+
+| 種別 | 名前 | 理由 |
+|------|------|------|
+| メンバー変数 | `self._capture_counter` | 累積カウンタは不要。Saveボタン押下時にリスト順で連番付与する |
+| メンバー変数 | `self._session_dir` | セッション単位のディレクトリ管理は不要。Saveボタン押下時に都度作成する |
+| UIウィジェット | `self._save_images_check` (QCheckBox) | Saveボタンに置き換え |
+| メソッド | `_ensure_session_dir()` | `_on_save_clicked()` 内で直接ディレクトリを作成する |
+| メソッド | `_save_capture_image()` | `_on_save_clicked()` に統合 |
+| 引数 | `_execute_capture()` の `overlay_bgr` 引数 | 保存対象が raw_bgr に変更されたため不要 |
 
 ### 4.6 カメラ切替・タブ離脱時のキャプチャクリア（FR-006）
 
@@ -708,8 +701,6 @@ def stop_live_view(self) -> None:
     # キャプチャクリア（追加）
     self._captures.clear()
     self._capture_image_size = None
-    self._capture_counter = 0
-    self._session_dir = None
     self._stability_trigger.reset()
     self._update_capture_list_ui()
     self._update_button_states()
@@ -754,11 +745,11 @@ feat-008の状態を維持（Idle, Connecting, LiveView）。
 
 ### 5.3 各状態でのUI要素の状態
 
-| 状態 | カメラ一覧 | Delete | Clear All | Save Images | ライブビュー |
-|------|-----------|--------|-----------|-------------|-------------|
-| Idle | 有効 | 無効 | 無効 | 有効 | メッセージ表示 |
-| Connecting | 無効 | 無効 | 無効 | 有効 | 空 |
-| LiveView | 有効 | 選択時有効 | キャプチャ1件以上で有効 | 有効 | ライブ表示 |
+| 状態 | カメラ一覧 | Delete | Clear All | Save | ライブビュー |
+|------|-----------|--------|-----------|------|-------------|
+| Idle | 有効 | 無効 | 無効 | 無効 | メッセージ表示 |
+| Connecting | 無効 | 無効 | 無効 | 無効 | 空 |
+| LiveView | 有効 | 選択時有効 | キャプチャ1件以上で有効 | キャプチャ1件以上で有効 | ライブ表示 |
 
 ---
 
@@ -778,11 +769,11 @@ captures/
 
 - パスは `src/synchroCap/` からの相対パス（`Path("captures") / ...`）。起動方法が `cd src/synchroCap && python main.py` に限定されているため、カレントディレクトリが `src/synchroCap/` であることを前提とする（recording_controller.py と同一の前提）
 - Multi Viewの録画保存先と同じ `captures/` ディレクトリ下に配置
-- `YYYYMMDD-HHMMSS` は最初のキャプチャ実行時の `datetime.now().strftime("%Y%m%d-%H%M%S")`
+- `YYYYMMDD-HHMMSS` はSaveボタン押下時の `datetime.now().strftime("%Y%m%d-%H%M%S")`
 - `{serial}` はカメラのシリアル番号（例: `49710307`）
 - 番号は1始まり、3桁ゼロパディング（001〜999）
 - PNG形式（ロスレス）
-- オーバーレイ描画済みのBGRフレームを保存
+- オーバーレイなしの生フレーム（BGR）を保存
 
 ### 6.2 設定ファイル
 
@@ -821,12 +812,11 @@ class StabilityTrigger:
 ### 7.2 ui_calibration.py（変更分のみ）
 
 既存の `CalibrationWidget` クラスに以下を追加する。
-import に `QCheckBox`, `QFrame`, `QScrollArea`, `QSizePolicy` を追加する（`QCheckBox` は既存importになければ追加。`QFrame`, `QScrollArea`, `QSizePolicy` は新規）:
+import に `QFrame`, `QScrollArea`, `QSizePolicy` を追加する:
 
 ```python
 from PySide6.QtWidgets import (
     # 既存の import に以下を追加:
-    QCheckBox,
     QFrame,
     QScrollArea,
     QSizePolicy,
@@ -838,8 +828,6 @@ class CalibrationWidget(QWidget):
     # -- 追加メンバー変数 --
     # self._captures: list[CaptureData]
     # self._capture_image_size: tuple[int, int] | None
-    # self._capture_counter: int  (累積カウンタ、静止画ファイル番号用)
-    # self._session_dir: Path | None
     # self._stability_trigger: StabilityTrigger
 
     # -- 追加UIウィジェット --
@@ -848,7 +836,7 @@ class CalibrationWidget(QWidget):
     # self._captures_list: QListWidget
     # self._delete_button: QPushButton
     # self._clear_all_button: QPushButton
-    # self._save_images_check: QCheckBox
+    # self._save_button: QPushButton
 
     # -- 削除するメソッド --
     # _update_detection_status() → _update_status_display() に置き換えて削除
@@ -859,7 +847,6 @@ class CalibrationWidget(QWidget):
         self,
         result: DetectionResult,
         raw_bgr: numpy.ndarray,
-        overlay_bgr: numpy.ndarray,
     ) -> None:
         """安定判定成立時のキャプチャ実行処理"""
 
@@ -868,6 +855,9 @@ class CalibrationWidget(QWidget):
 
     def _on_clear_all_clicked(self) -> None:
         """Clear Allボタン押下時。全キャプチャを削除"""
+
+    def _on_save_clicked(self) -> None:
+        """Saveボタン押下時。全キャプチャの生フレームを一括保存"""
 
     def _update_capture_list_ui(self) -> None:
         """キャプチャリストのQListWidgetを更新"""
@@ -887,16 +877,6 @@ class CalibrationWidget(QWidget):
 
     def _reset_live_view_style(self) -> None:
         """フラッシュを元に戻す"""
-
-    def _ensure_session_dir(self) -> Path | None:
-        """セッションディレクトリを作成して返す"""
-
-    def _save_capture_image(
-        self,
-        overlay_bgr: numpy.ndarray,
-        capture_number: int,
-    ) -> None:
-        """キャプチャ画像をPNGファイルとして保存"""
 ```
 
 ### 7.3 UIレイアウト（変更後）
@@ -913,7 +893,7 @@ class CalibrationWidget(QWidget):
 |Captures  |                  |
 |(QList)   |                  |
 |[Delete][Clear All]          |
-|[x] Save Images              |
+|[Save]                       |
 |          |                  |
 +----------+------------------+
 左パネル(left_panel): 固定幅200px（変更なし）
@@ -986,5 +966,5 @@ GUIを含む統合テストは手動で実施する。テスト項目:
 - カメラ接続後、ボードを静止させて自動キャプチャが発生すること
 - クールダウン中にキャプチャが発生しないこと
 - キャプチャリストの表示・削除が正常に動作すること
-- Save Images ON/OFF で静止画保存の有無が切り替わること
+- Saveボタンを押して全キャプチャの生フレームがPNG保存されること
 - カメラ切替でキャプチャがクリアされること

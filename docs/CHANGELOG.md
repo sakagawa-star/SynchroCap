@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- [feat-009](issues/feat-009-manual-capture-calibration/) Camera Calibration - Auto Capture (Stability Trigger)
+  - 安定検出トリガーによる自動キャプチャ（2.0秒連続成功で発火）
+  - クールダウン制御（3.0秒）
+  - キャプチャリスト管理（表示・削除・全クリア）
+  - キャプチャ時フィードバック（ステータス表示、枠線フラッシュ）
+  - 静止画一括保存（Save ボタンで全キャプチャの生フレームをPNG保存）
 - [feat-008](issues/feat-008-camera-calibration/) Camera Calibration - Live View with Board Detection (Tab5)
   - カメラ選択・ライブビュー表示
   - ChArUco / チェッカーボードのリアルタイム検出オーバーレイ
