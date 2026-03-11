@@ -1,6 +1,6 @@
 # feat-010: Camera Calibration - Coverage Heatmap
 
-## Status: Open
+## Status: Closed
 
 ## Summary
 

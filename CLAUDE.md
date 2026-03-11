@@ -39,6 +39,7 @@ SynchroCap/
 │       ├── ui_multi_view.py         # Tab3: マルチビューUI・録画統合
 │       ├── ui_camera_settings_viewer.py  # Tab4: カメラ設定ビューア
 │       ├── ui_calibration.py        # Tab5: キャリブレーション
+│       ├── coverage_heatmap.py       # カバレッジヒートマップ生成
 │       ├── board_detector.py        # ChArUcoボード検出
 │       ├── stability_trigger.py     # 安定検出トリガーエンジン
 │       ├── recording_controller.py  # 録画制御ロジック
@@ -194,10 +195,10 @@ docs/issues/
 feat-008: ライブビュー + ボード検出 (Tab5追加) ← 完了
     │
     ▼
-feat-009: 自動キャプチャ（安定検出トリガー） ← 次
+feat-009: 自動キャプチャ（安定検出トリガー） ← 完了
     │
     ▼
-feat-010: カバレッジヒートマップ
+feat-010: カバレッジヒートマップ ← 完了
     │
     ▼
 feat-011: キャリブレーション計算 + 結果表示
@@ -221,6 +222,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **feat-010**: Camera Calibration - Coverage Heatmap → `docs/issues/feat-010-coverage-heatmap/`
 - **feat-009**: Camera Calibration - Auto Capture (Stability Trigger) → `docs/issues/feat-009-manual-capture-calibration/`
 - **bug-007**: Calibration Board Settings 誤操作防止 → `docs/issues/bug-007-calibration-spinbox-wheel-scroll/`
 - **feat-008**: Camera Calibration - Live View with Board Detection → `docs/issues/feat-008-camera-calibration/`

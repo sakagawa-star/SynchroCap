@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- [feat-010](issues/feat-010-coverage-heatmap/) Camera Calibration - Coverage Heatmap
+  - ガウシアンカーネル（σ=画像幅×5%）によるカバレッジヒートマップ生成
+  - ライブビューへの自動オーバーレイ表示（キャプチャ1件以上で自動、alpha 0.3）
+  - COLORMAP_TURBOによる可視化（未カバー領域=黒、高密度=赤）
+  - キャプチャ追加・削除時のキャッシュ自動更新
 - [feat-009](issues/feat-009-manual-capture-calibration/) Camera Calibration - Auto Capture (Stability Trigger)
   - 安定検出トリガーによる自動キャプチャ（2.0秒連続成功で発火）
   - クールダウン制御（3.0秒）
