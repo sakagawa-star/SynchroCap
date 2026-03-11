@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from board_detector import BoardDetector, DetectionResult
 from channel_registry import ChannelRegistry
+from coverage_heatmap import CoverageHeatmap
 from stability_trigger import Phase, StabilityState, StabilityTrigger
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,10 @@ class CalibrationWidget(QWidget):
         self._captures: list[CaptureData] = []
         self._capture_image_size: tuple[int, int] | None = None
 
+        # Heatmap state
+        self._heatmap_generator: CoverageHeatmap | None = None
+        self._heatmap_cache: numpy.ndarray | None = None
+
         # Frame processing timer
         self._frame_timer = QTimer(self)
         self._frame_timer.setInterval(33)  # ~30FPS
@@ -154,6 +159,8 @@ class CalibrationWidget(QWidget):
         self._captures.clear()
         self._capture_image_size = None
         self._stability_trigger.reset()
+        self._heatmap_cache = None
+        self._heatmap_generator = None
         self._update_capture_list_ui()
         self._update_button_states()
 
@@ -405,6 +412,11 @@ class CalibrationWidget(QWidget):
             self._execute_capture(result, bgr)
 
         self._update_status_display(result, state)
+
+        # Heatmap overlay — auto-display when captures exist
+        if self._heatmap_cache is not None:
+            overlay_bgr = cv2.addWeighted(overlay_bgr, 0.7, self._heatmap_cache, 0.3, 0)
+
         self._display_frame(overlay_bgr)
 
     def _display_frame(self, bgr: numpy.ndarray) -> None:
@@ -482,6 +494,7 @@ class CalibrationWidget(QWidget):
         self._captures.append(capture)
         n = len(self._captures)
 
+        self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
         self._flash_live_view()
@@ -523,6 +536,7 @@ class CalibrationWidget(QWidget):
         self._captures.pop(row)
         if not self._captures:
             self._capture_image_size = None
+        self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
         logger.info("Deleted capture #%d", row + 1)
@@ -531,9 +545,31 @@ class CalibrationWidget(QWidget):
         """Clear all captures."""
         self._captures.clear()
         self._capture_image_size = None
+        self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
         logger.info("Cleared all captures")
+
+    # ── Heatmap ──
+
+    def _update_heatmap_cache(self) -> None:
+        """Recompute heatmap cache. Clear to None if no captures."""
+        if not self._captures or self._capture_image_size is None:
+            self._heatmap_cache = None
+            return
+
+        # CaptureData.image_points: shape=(N,1,2) -> reshape(-1,2) -> (N,2)
+        all_points = numpy.concatenate(
+            [cap.image_points.reshape(-1, 2) for cap in self._captures],
+            axis=0,
+        )
+
+        if self._heatmap_generator is None:
+            self._heatmap_generator = CoverageHeatmap(self._capture_image_size)
+
+        self._heatmap_cache = self._heatmap_generator.generate(all_points)
+        logger.info("Heatmap updated: %d points, sigma=%.1f",
+                     len(all_points), self._heatmap_generator._sigma)
 
     # ── Image saving ──
 
