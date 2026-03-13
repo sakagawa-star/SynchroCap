@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 12 items
+
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_returns_result PASSED [  8%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rms_error_reasonable PASSED [ 16%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_shape PASSED [ 25%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_dist_coeffs_shape PASSED [ 33%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_length PASSED [ 41%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_non_negative PASSED [ 50%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_close_to_known PASSED [ 58%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rvecs_tvecs_length PASSED [ 66%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_raises_valueerror PASSED [ 75%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_empty_list_raises_valueerror PASSED [ 83%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_exactly_four PASSED [ 91%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_constant PASSED [100%]
+
+============================== 12 passed in 0.23s ==============================

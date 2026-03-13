@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from board_detector import BoardDetector, DetectionResult
+from calibration_engine import CalibrationEngine, CalibrationResult
 from channel_registry import ChannelRegistry
 from coverage_heatmap import CoverageHeatmap
 from stability_trigger import Phase, StabilityState, StabilityTrigger
@@ -122,6 +123,10 @@ class CalibrationWidget(QWidget):
         self._heatmap_generator: CoverageHeatmap | None = None
         self._heatmap_cache: numpy.ndarray | None = None
 
+        # Calibration state
+        self._calibration_engine = CalibrationEngine()
+        self._calibration_result: CalibrationResult | None = None
+
         # Frame processing timer
         self._frame_timer = QTimer(self)
         self._frame_timer.setInterval(33)  # ~30FPS
@@ -161,6 +166,7 @@ class CalibrationWidget(QWidget):
         self._stability_trigger.reset()
         self._heatmap_cache = None
         self._heatmap_generator = None
+        self._clear_calibration_result()
         self._update_capture_list_ui()
         self._update_button_states()
 
@@ -248,6 +254,40 @@ class CalibrationWidget(QWidget):
         captures_layout.addWidget(self._save_button)
 
         left_layout.addWidget(captures_group)
+
+        # Calibration section
+        calib_group = QGroupBox("Calibration")
+        calib_layout = QVBoxLayout(calib_group)
+
+        self._calibrate_button = QPushButton("Calibrate")
+        self._calibrate_button.setEnabled(False)
+        self._calibrate_button.clicked.connect(self._on_calibrate_clicked)
+        calib_layout.addWidget(self._calibrate_button)
+
+        results_form = QFormLayout()
+
+        self._rms_label = QLabel("---")
+        results_form.addRow("RMS Error:", self._rms_label)
+
+        self._fx_label = QLabel("---")
+        results_form.addRow("fx:", self._fx_label)
+
+        self._fy_label = QLabel("---")
+        results_form.addRow("fy:", self._fy_label)
+
+        self._cx_label = QLabel("---")
+        results_form.addRow("cx:", self._cx_label)
+
+        self._cy_label = QLabel("---")
+        results_form.addRow("cy:", self._cy_label)
+
+        self._dist_label = QLabel("---")
+        self._dist_label.setWordWrap(True)
+        results_form.addRow("Dist:", self._dist_label)
+
+        calib_layout.addLayout(results_form)
+
+        left_layout.addWidget(calib_group)
 
         left_panel.setFixedWidth(200)
         scroll_area = QScrollArea()
@@ -494,6 +534,7 @@ class CalibrationWidget(QWidget):
         self._captures.append(capture)
         n = len(self._captures)
 
+        self._clear_calibration_result()
         self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
@@ -517,16 +558,24 @@ class CalibrationWidget(QWidget):
         """Rebuild the captures QListWidget."""
         self._captures_list.clear()
         for i, cap in enumerate(self._captures):
-            self._captures_list.addItem(f"#{i+1:02d}: {cap.num_corners} corners")
+            text = f"#{i+1:02d}: {cap.num_corners} corners"
+            if (self._calibration_result is not None
+                    and i < len(self._calibration_result.per_image_errors)):
+                err = self._calibration_result.per_image_errors[i]
+                text += f" | err: {err:.2f} px"
+            self._captures_list.addItem(text)
 
     def _update_button_states(self, _row: int = -1) -> None:
-        """Update Delete/Clear All button enabled states."""
+        """Update Delete/Clear All/Calibrate button enabled states."""
         has_captures = len(self._captures) > 0
         has_selection = self._captures_list.currentRow() >= 0
 
         self._delete_button.setEnabled(has_captures and has_selection)
         self._clear_all_button.setEnabled(has_captures)
         self._save_button.setEnabled(has_captures)
+        self._calibrate_button.setEnabled(
+            len(self._captures) >= CalibrationEngine.MIN_CAPTURES
+        )
 
     def _on_delete_clicked(self) -> None:
         """Delete selected capture."""
@@ -536,6 +585,7 @@ class CalibrationWidget(QWidget):
         self._captures.pop(row)
         if not self._captures:
             self._capture_image_size = None
+        self._clear_calibration_result()
         self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
@@ -545,10 +595,64 @@ class CalibrationWidget(QWidget):
         """Clear all captures."""
         self._captures.clear()
         self._capture_image_size = None
+        self._clear_calibration_result()
         self._update_heatmap_cache()
         self._update_capture_list_ui()
         self._update_button_states()
         logger.info("Cleared all captures")
+
+    # ── Calibration ──
+
+    def _on_calibrate_clicked(self) -> None:
+        """Execute calibration calculation."""
+        if len(self._captures) < CalibrationEngine.MIN_CAPTURES:
+            return
+
+        object_points_list = [cap.object_points for cap in self._captures]
+        image_points_list = [cap.image_points for cap in self._captures]
+
+        try:
+            result = self._calibration_engine.calibrate(
+                object_points_list,
+                image_points_list,
+                self._capture_image_size,
+            )
+        except cv2.error as e:
+            self._status_label.setText(f"Calibration failed: {e}")
+            logger.warning("Calibration failed: %s", e)
+            return
+
+        self._calibration_result = result
+        self._display_calibration_result(result)
+        self._update_capture_list_ui()
+        self._status_label.setText(
+            f"Calibration done: RMS={result.rms_error:.4f} px"
+        )
+
+    def _display_calibration_result(self, result: CalibrationResult) -> None:
+        """Update result labels with calibration values."""
+        self._rms_label.setText(f"{result.rms_error:.4f} px")
+        self._fx_label.setText(f"{result.camera_matrix[0, 0]:.1f}")
+        self._fy_label.setText(f"{result.camera_matrix[1, 1]:.1f}")
+        self._cx_label.setText(f"{result.camera_matrix[0, 2]:.1f}")
+        self._cy_label.setText(f"{result.camera_matrix[1, 2]:.1f}")
+
+        d = result.dist_coeffs.flatten()
+        self._dist_label.setText(
+            f"k1={d[0]:.4f}, k2={d[1]:.4f}\n"
+            f"p1={d[2]:.4f}, p2={d[3]:.4f}\n"
+            f"k3={d[4]:.4f}"
+        )
+
+    def _clear_calibration_result(self) -> None:
+        """Clear result labels and internal result state."""
+        self._calibration_result = None
+        self._rms_label.setText("---")
+        self._fx_label.setText("---")
+        self._fy_label.setText("---")
+        self._cx_label.setText("---")
+        self._cy_label.setText("---")
+        self._dist_label.setText("---")
 
     # ── Heatmap ──
 
