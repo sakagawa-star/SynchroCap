@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- [feat-012](issues/feat-012-export-pose2sim/) Camera Calibration - Export (Pose2Sim TOML + JSON)
+  - Pose2Sim互換TOML形式エクスポート（カメラ行列、歪み係数4パラメータ、メタデータ）
+  - 汎用JSON形式エクスポート（OpenCV完全互換、歪み係数5パラメータ）
+  - Exportボタン（Calibration QGroupBox内、キャリブレーション結果存在時のみ有効）
+  - Save/Exportの保存先ディレクトリ共有（`captures/{timestamp}/intrinsics/cam{serial}/`）
 - [feat-010](issues/feat-010-coverage-heatmap/) Camera Calibration - Coverage Heatmap
   - ガウシアンカーネル（σ=画像幅×5%）によるカバレッジヒートマップ生成
   - ライブビューへの自動オーバーレイ表示（キャプチャ1件以上で自動、alpha 0.3）

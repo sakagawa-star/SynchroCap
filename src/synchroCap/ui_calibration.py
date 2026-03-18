@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from board_detector import BoardDetector, DetectionResult
 from calibration_engine import CalibrationEngine, CalibrationResult
+from calibration_exporter import CalibrationExporter
 from channel_registry import ChannelRegistry
 from coverage_heatmap import CoverageHeatmap
 from stability_trigger import Phase, StabilityState, StabilityTrigger
@@ -118,6 +119,7 @@ class CalibrationWidget(QWidget):
         # Capture state
         self._captures: list[CaptureData] = []
         self._capture_image_size: tuple[int, int] | None = None
+        self._save_dir: Path | None = None
 
         # Heatmap state
         self._heatmap_generator: CoverageHeatmap | None = None
@@ -163,6 +165,7 @@ class CalibrationWidget(QWidget):
         # Clear captures
         self._captures.clear()
         self._capture_image_size = None
+        self._save_dir = None
         self._stability_trigger.reset()
         self._heatmap_cache = None
         self._heatmap_generator = None
@@ -263,6 +266,11 @@ class CalibrationWidget(QWidget):
         self._calibrate_button.setEnabled(False)
         self._calibrate_button.clicked.connect(self._on_calibrate_clicked)
         calib_layout.addWidget(self._calibrate_button)
+
+        self._export_button = QPushButton("Export")
+        self._export_button.setEnabled(False)
+        self._export_button.clicked.connect(self._on_export_clicked)
+        calib_layout.addWidget(self._export_button)
 
         results_form = QFormLayout()
 
@@ -566,7 +574,7 @@ class CalibrationWidget(QWidget):
             self._captures_list.addItem(text)
 
     def _update_button_states(self, _row: int = -1) -> None:
-        """Update Delete/Clear All/Calibrate button enabled states."""
+        """Update Delete/Clear All/Calibrate/Export button enabled states."""
         has_captures = len(self._captures) > 0
         has_selection = self._captures_list.currentRow() >= 0
 
@@ -576,6 +584,7 @@ class CalibrationWidget(QWidget):
         self._calibrate_button.setEnabled(
             len(self._captures) >= CalibrationEngine.MIN_CAPTURES
         )
+        self._export_button.setEnabled(self._calibration_result is not None)
 
     def _on_delete_clicked(self) -> None:
         """Delete selected capture."""
@@ -585,6 +594,7 @@ class CalibrationWidget(QWidget):
         self._captures.pop(row)
         if not self._captures:
             self._capture_image_size = None
+            self._save_dir = None
         self._clear_calibration_result()
         self._update_heatmap_cache()
         self._update_capture_list_ui()
@@ -595,6 +605,7 @@ class CalibrationWidget(QWidget):
         """Clear all captures."""
         self._captures.clear()
         self._capture_image_size = None
+        self._save_dir = None
         self._clear_calibration_result()
         self._update_heatmap_cache()
         self._update_capture_list_ui()
@@ -625,9 +636,39 @@ class CalibrationWidget(QWidget):
         self._calibration_result = result
         self._display_calibration_result(result)
         self._update_capture_list_ui()
+        self._update_button_states()
         self._status_label.setText(
             f"Calibration done: RMS={result.rms_error:.4f} px"
         )
+
+    def _on_export_clicked(self) -> None:
+        """Export calibration result to TOML and JSON files."""
+        if self._calibration_result is None or self._capture_image_size is None:
+            return
+
+        try:
+            export_dir = self._ensure_save_dir()
+        except OSError as e:
+            self._status_label.setText(f"Export failed: {e}")
+            logger.error("Export failed: %s", e)
+            return
+
+        try:
+            exporter = CalibrationExporter()
+            paths = exporter.export(
+                result=self._calibration_result,
+                serial=self._current_serial,
+                image_size=self._capture_image_size,
+                num_images=len(self._captures),
+                output_dir=export_dir,
+            )
+        except OSError as e:
+            self._status_label.setText(f"Export failed: {e}")
+            logger.error("Export failed: %s", e)
+            return
+
+        self._status_label.setText(f"Exported to {export_dir}")
+        logger.info("Exported: %s", [str(p) for p in paths])
 
     def _display_calibration_result(self, result: CalibrationResult) -> None:
         """Update result labels with calibration values."""
@@ -675,6 +716,24 @@ class CalibrationWidget(QWidget):
         logger.info("Heatmap updated: %d points, sigma=%.1f",
                      len(all_points), self._heatmap_generator._sigma)
 
+    # ── Save directory ──
+
+    def _ensure_save_dir(self) -> Path:
+        """Return save directory, creating it on first call.
+
+        mkdir is called on every invocation because Save and Export
+        can be called in any order, and the directory may not yet
+        exist when _save_dir is already set.
+
+        Raises:
+            OSError: If mkdir fails (e.g. permission denied, disk full).
+        """
+        if self._save_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            self._save_dir = Path("captures") / timestamp / "intrinsics" / f"cam{self._current_serial}"
+        self._save_dir.mkdir(parents=True, exist_ok=True)
+        return self._save_dir
+
     # ── Image saving ──
 
     def _on_save_clicked(self) -> None:
@@ -682,12 +741,10 @@ class CalibrationWidget(QWidget):
         if not self._captures:
             return
 
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        cam_dir = Path("captures") / timestamp / "intrinsics" / f"cam{self._current_serial}"
         try:
-            cam_dir.mkdir(parents=True, exist_ok=True)
+            cam_dir = self._ensure_save_dir()
         except OSError as e:
-            logger.error("Failed to create save dir %s: %s", cam_dir, e)
+            logger.error("Failed to create save dir %s: %s", self._save_dir, e)
             self._status_label.setText(f"Save failed: {e}")
             return
 

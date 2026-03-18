@@ -41,6 +41,7 @@ SynchroCap/
 │       ├── ui_calibration.py        # Tab5: キャリブレーション
 │       ├── coverage_heatmap.py       # カバレッジヒートマップ生成
 │       ├── board_detector.py        # ChArUcoボード検出
+│       ├── calibration_exporter.py  # キャリブレーション結果エクスポート
 │       ├── stability_trigger.py     # 安定検出トリガーエンジン
 │       ├── recording_controller.py  # 録画制御ロジック
 │       ├── channel_registry.py      # チャンネル登録管理
@@ -204,7 +205,7 @@ feat-010: カバレッジヒートマップ ← 完了
 feat-011: キャリブレーション計算 + 結果表示
     │
     ▼
-feat-012: エクスポート (Pose2Sim TOML + JSON)
+feat-012: エクスポート (Pose2Sim TOML + JSON) ← 完了
     │
     ▼
 feat-013: セッション保存/再開（Board Settings の永続化を含む）
@@ -222,6 +223,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **feat-012**: Camera Calibration - Export (Pose2Sim TOML + JSON) → `docs/issues/feat-012-export-pose2sim/`
 - **feat-010**: Camera Calibration - Coverage Heatmap → `docs/issues/feat-010-coverage-heatmap/`
 - **feat-009**: Camera Calibration - Auto Capture (Stability Trigger) → `docs/issues/feat-009-manual-capture-calibration/`
 - **bug-007**: Calibration Board Settings 誤操作防止 → `docs/issues/bug-007-calibration-spinbox-wheel-scroll/`
