@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 9 items
+
+tests/test_board_settings_store.py::TestSaveLoad::test_save_and_load PASSED [ 11%]
+tests/test_board_settings_store.py::TestSaveLoad::test_all_five_keys_preserved PASSED [ 22%]
+tests/test_board_settings_store.py::TestSaveLoad::test_checkerboard_type PASSED [ 33%]
+tests/test_board_settings_store.py::TestLoadErrors::test_file_not_exists PASSED [ 44%]
+tests/test_board_settings_store.py::TestLoadErrors::test_invalid_json PASSED [ 55%]
+tests/test_board_settings_store.py::TestLoadErrors::test_root_not_object PASSED [ 66%]
+tests/test_board_settings_store.py::TestSaveErrors::test_auto_create_parent_directory PASSED [ 77%]
+tests/test_board_settings_store.py::TestSaveErrors::test_partial_keys PASSED [ 88%]
+tests/test_board_settings_store.py::TestSaveErrors::test_overwrite_existing PASSED [100%]
+
+============================== 9 passed in 0.02s ===============================

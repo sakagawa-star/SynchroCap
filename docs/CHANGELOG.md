@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- [feat-013](issues/feat-013-session-save-resume/) Camera Calibration - Session Save/Resume (Board Settings)
+  - Board Settings（board_type, cols, rows, square_mm, marker_mm）のJSON永続化
+  - ダイアログOK押下時に自動保存（`~/.local/share/synchroCap/board_settings.json`）
+  - アプリ起動時に自動復元（バリデーション付き、不正値はデフォルトにフォールバック）
 - [feat-011](issues/feat-011-calibration-calculation/) Camera Calibration - Calibration Calculation + Result Display
   - `cv2.calibrateCamera()` によるカメラ内部パラメータ算出
   - カメラ行列（fx, fy, cx, cy）、歪み係数（k1, k2, p1, p2, k3）、RMS再投影誤差の表示

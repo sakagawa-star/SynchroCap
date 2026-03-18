@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import cv2
 import imagingcontrol4 as ic4
 import numpy
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QStandardPaths
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from board_detector import BoardDetector, DetectionResult
+from board_settings_store import BoardSettingsStore
 from calibration_engine import CalibrationEngine, CalibrationResult
 from calibration_exporter import CalibrationExporter
 from channel_registry import ChannelRegistry
@@ -110,6 +112,14 @@ class CalibrationWidget(QWidget):
         self._square_mm: float = 30.0
         self._marker_mm: float = 22.0
 
+        # Persistent storage
+        appdata = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
+        board_settings_path = os.path.join(appdata, "board_settings.json")
+        self._board_settings_store = BoardSettingsStore(board_settings_path)
+        self._load_board_settings()
+
         # Board detector
         self._detector = BoardDetector()
 
@@ -135,6 +145,10 @@ class CalibrationWidget(QWidget):
         self._frame_timer.timeout.connect(self._process_latest_frame)
 
         self._create_ui()
+
+        # Apply restored board settings to UI and detector
+        self._update_board_settings_ui()
+        self._apply_board_config()
 
     # ── Public methods (called from mainwindow.py) ──
 
@@ -763,6 +777,50 @@ class CalibrationWidget(QWidget):
 
     # ── Board settings ──
 
+    def _save_board_settings(self) -> None:
+        """Save current board settings to persistent storage."""
+        self._board_settings_store.save({
+            "board_type": self._board_type,
+            "cols": self._cols,
+            "rows": self._rows,
+            "square_mm": self._square_mm,
+            "marker_mm": self._marker_mm,
+        })
+
+    def _load_board_settings(self) -> None:
+        """Load board settings from persistent storage."""
+        data = self._board_settings_store.load()
+        if data is None:
+            return
+
+        bt = data.get("board_type")
+        if bt in ("charuco", "checkerboard"):
+            self._board_type = bt
+
+        cols = data.get("cols")
+        if isinstance(cols, int) and 3 <= cols <= 20:
+            self._cols = cols
+
+        rows = data.get("rows")
+        if isinstance(rows, int) and 3 <= rows <= 20:
+            self._rows = rows
+
+        sq = data.get("square_mm")
+        if isinstance(sq, (int, float)) and 1.0 <= sq <= 200.0:
+            self._square_mm = float(sq)
+
+        mk = data.get("marker_mm")
+        if isinstance(mk, (int, float)) and 1.0 <= mk <= 200.0:
+            self._marker_mm = float(mk)
+
+    def _update_board_settings_ui(self) -> None:
+        """Update board settings button texts from internal state."""
+        self._type_button.setText("ChArUco" if self._board_type == "charuco" else "Checkerboard")
+        self._cols_button.setText(str(self._cols))
+        self._rows_button.setText(str(self._rows))
+        self._square_button.setText(f"{self._square_mm:.1f} mm")
+        self._marker_button.setText(f"{self._marker_mm:.1f} mm")
+
     def _apply_board_config(self) -> None:
         """Apply current board config to detector. Enforce marker_mm < square_mm."""
         if self._marker_mm >= self._square_mm:
@@ -802,6 +860,7 @@ class CalibrationWidget(QWidget):
         self._board_type = "charuco" if combo.currentIndex() == 0 else "checkerboard"
         self._type_button.setText("ChArUco" if self._board_type == "charuco" else "Checkerboard")
         self._apply_board_config()
+        self._save_board_settings()
 
     def _on_cols_button_clicked(self) -> None:
         dlg = QDialog(self)
@@ -826,6 +885,7 @@ class CalibrationWidget(QWidget):
         self._cols = spin.value()
         self._cols_button.setText(str(self._cols))
         self._apply_board_config()
+        self._save_board_settings()
 
     def _on_rows_button_clicked(self) -> None:
         dlg = QDialog(self)
@@ -850,6 +910,7 @@ class CalibrationWidget(QWidget):
         self._rows = spin.value()
         self._rows_button.setText(str(self._rows))
         self._apply_board_config()
+        self._save_board_settings()
 
     def _on_square_button_clicked(self) -> None:
         dlg = QDialog(self)
@@ -876,6 +937,7 @@ class CalibrationWidget(QWidget):
         self._square_mm = spin.value()
         self._square_button.setText(f"{self._square_mm:.1f} mm")
         self._apply_board_config()
+        self._save_board_settings()
 
     def _on_marker_button_clicked(self) -> None:
         dlg = QDialog(self)
@@ -902,3 +964,4 @@ class CalibrationWidget(QWidget):
         self._marker_mm = spin.value()
         self._marker_button.setText(f"{self._marker_mm:.1f} mm")
         self._apply_board_config()
+        self._save_board_settings()
