@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- [feat-011](issues/feat-011-calibration-calculation/) Camera Calibration - Calibration Calculation + Result Display
+  - `cv2.calibrateCamera()` によるカメラ内部パラメータ算出
+  - カメラ行列（fx, fy, cx, cy）、歪み係数（k1, k2, p1, p2, k3）、RMS再投影誤差の表示
+  - キャプチャごとの再投影誤差表示
+  - OpenCVの他キャリブレーションコードと結果がほぼ一致することを確認済み
 - [feat-012](issues/feat-012-export-pose2sim/) Camera Calibration - Export (Pose2Sim TOML + JSON)
   - Pose2Sim互換TOML形式エクスポート（カメラ行列、歪み係数4パラメータ、メタデータ）
   - 汎用JSON形式エクスポート（OpenCV完全互換、歪み係数5パラメータ）

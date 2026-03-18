@@ -202,7 +202,7 @@ feat-009: 自動キャプチャ（安定検出トリガー） ← 完了
 feat-010: カバレッジヒートマップ ← 完了
     │
     ▼
-feat-011: キャリブレーション計算 + 結果表示
+feat-011: キャリブレーション計算 + 結果表示 ← 完了
     │
     ▼
 feat-012: エクスポート (Pose2Sim TOML + JSON) ← 完了
@@ -223,6 +223,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **feat-011**: Camera Calibration - Calibration Calculation + Result Display → `docs/issues/feat-011-calibration-calculation/`
 - **feat-012**: Camera Calibration - Export (Pose2Sim TOML + JSON) → `docs/issues/feat-012-export-pose2sim/`
 - **feat-010**: Camera Calibration - Coverage Heatmap → `docs/issues/feat-010-coverage-heatmap/`
 - **feat-009**: Camera Calibration - Auto Capture (Stability Trigger) → `docs/issues/feat-009-manual-capture-calibration/`

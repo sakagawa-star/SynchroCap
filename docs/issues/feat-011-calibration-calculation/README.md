@@ -1,6 +1,6 @@
 # feat-011: Camera Calibration - Calibration Calculation + Result Display
 
-## Status: Open
+## Status: Closed
 
 ## 概要
 
