@@ -1,5 +1,6 @@
 """Unit tests for CoverageHeatmap (Gaussian kernel approach)."""
 
+import cv2
 import numpy
 import pytest
 import sys
@@ -127,6 +128,15 @@ class TestCoverageHeatmapGenerate:
         assert numpy.any(result[100, 100] > 0)
         assert numpy.any(result[300, 300] > 0)
 
+        # Dense area (10 points, >SAT_CAPTURES) should saturate to TURBO max color
+        turbo_max = cv2.applyColorMap(
+            numpy.array([[255]], dtype=numpy.uint8), cv2.COLORMAP_TURBO
+        )[0, 0]
+        numpy.testing.assert_array_equal(result[100, 100], turbo_max)
+
+        # Sparse area (1 point) should NOT be at max color
+        assert not numpy.array_equal(result[300, 300], turbo_max)
+
     def test_points_at_image_edge(self):
         """Points at image edges should not cause errors."""
         hm = CoverageHeatmap((200, 200))
@@ -158,3 +168,62 @@ class TestCoverageHeatmapGenerate:
         # Should not crash, corners should be colored
         assert numpy.any(result[0, 0] > 0)
         assert numpy.any(result[199, 199] > 0)
+
+
+class TestFixedScaleNormalization:
+    """Tests for fixed-scale normalization (bug-008 fix)."""
+
+    def test_fixed_scale_saturation(self):
+        """SAT_CAPTURES overlapping points should saturate to colormap max."""
+        hm = CoverageHeatmap((400, 400))
+        # Place SAT_CAPTURES points at center
+        n = CoverageHeatmap.SAT_CAPTURES
+        points = numpy.array([[200.0, 200.0]] * n, dtype=numpy.float32)
+        result = hm.generate(points)
+
+        # Get expected color for normalized=255 in COLORMAP_TURBO
+        turbo_max = cv2.applyColorMap(
+            numpy.array([[255]], dtype=numpy.uint8), cv2.COLORMAP_TURBO
+        )[0, 0]
+
+        # Center pixel should match the colormap maximum color
+        center = result[200, 200]
+        numpy.testing.assert_array_equal(center, turbo_max)
+
+    def test_fixed_scale_clip(self):
+        """More than SAT_CAPTURES overlapping points should still clip to colormap max."""
+        hm = CoverageHeatmap((400, 400))
+        # Place 10x SAT_CAPTURES points at center
+        n = CoverageHeatmap.SAT_CAPTURES * 10
+        points = numpy.array([[200.0, 200.0]] * n, dtype=numpy.float32)
+        result = hm.generate(points)
+
+        # Get expected color for normalized=255 in COLORMAP_TURBO
+        turbo_max = cv2.applyColorMap(
+            numpy.array([[255]], dtype=numpy.uint8), cv2.COLORMAP_TURBO
+        )[0, 0]
+
+        # Center pixel should still be colormap max (clipped, not overflow)
+        center = result[200, 200]
+        numpy.testing.assert_array_equal(center, turbo_max)
+
+    def test_no_intensity_drop_on_new_capture(self):
+        """Adding points in a new region must not reduce intensity in existing region.
+
+        This is the direct regression test for bug-008.
+        """
+        hm = CoverageHeatmap((400, 400))
+
+        # First capture: points at (100, 200)
+        points_a = numpy.array([[100.0, 200.0]] * 3, dtype=numpy.float32)
+        result_a = hm.generate(points_a)
+        intensity_a = int(result_a[200, 100].max())
+
+        # Second capture: add points at distant location (300, 200)
+        points_b = numpy.array([[300.0, 200.0]], dtype=numpy.float32)
+        points_ab = numpy.concatenate([points_a, points_b])
+        result_ab = hm.generate(points_ab)
+        intensity_ab = int(result_ab[200, 100].max())
+
+        # Intensity at original location must NOT decrease
+        assert intensity_ab >= intensity_a

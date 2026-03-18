@@ -8,7 +8,7 @@
 | feat-010 | Feature | Camera Calibration - Coverage Heatmap | Closed |
 | [feat-011](issues/feat-011-calibration-calculation/) | Feature | Camera Calibration - Calibration Calculation + Result Display | In Progress |
 | [feat-012](issues/feat-012-export-pose2sim/) | Feature | Camera Calibration - Export (Pose2Sim TOML + JSON) | Closed |
-| [bug-008](issues/bug-008-heatmap-overwrite/) | Bug | ヒートマップの高密度領域が低密度領域に上書きされる | Open |
+| [bug-008](issues/bug-008-heatmap-overwrite/) | Bug | ヒートマップの高密度領域が低密度領域に上書きされる | Closed |
 | feat-013 | Feature | Camera Calibration - Session Save/Resume | Planned |
 
 ## Closed

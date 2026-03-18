@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 16 items
+
+tests/test_coverage_heatmap.py::TestCoverageHeatmapInit::test_sigma_hd PASSED [  6%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapInit::test_sigma_vga PASSED [ 12%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapInit::test_sigma_minimum PASSED [ 18%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_empty_points_returns_black PASSED [ 25%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_output_shape_matches_image_size PASSED [ 31%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_single_point_creates_colored_area PASSED [ 37%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_single_point_far_corners_are_black PASSED [ 43%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_gaussian_spread_fills_between_corners PASSED [ 50%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_zero_pixels_are_black PASSED [ 56%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_multiple_captures_accumulate PASSED [ 62%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_dense_points_produce_higher_intensity PASSED [ 68%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_points_at_image_edge PASSED [ 75%]
+tests/test_coverage_heatmap.py::TestCoverageHeatmapGenerate::test_points_outside_image_clipped PASSED [ 81%]
+tests/test_coverage_heatmap.py::TestFixedScaleNormalization::test_fixed_scale_saturation PASSED [ 87%]
+tests/test_coverage_heatmap.py::TestFixedScaleNormalization::test_fixed_scale_clip PASSED [ 93%]
+tests/test_coverage_heatmap.py::TestFixedScaleNormalization::test_no_intensity_drop_on_new_capture PASSED [100%]
+
+============================== 16 passed in 0.58s ==============================

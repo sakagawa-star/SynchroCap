@@ -1,6 +1,6 @@
 # bug-008: ヒートマップの高密度領域が低密度領域に上書きされる
 
-## Status: Open
+## Status: Closed
 
 ## 概要
 

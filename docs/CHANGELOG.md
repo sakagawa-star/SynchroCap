@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- [bug-008](issues/bug-008-heatmap-overwrite/) ヒートマップの高密度領域が低密度領域に上書きされる
+  - 相対正規化（max_val除算）から固定スケール正規化（SAT_CAPTURES=3で飽和）に変更
+  - キャプチャ追加後も既存の高密度領域の赤色が維持される
 - [bug-007](issues/bug-007-calibration-spinbox-wheel-scroll/) Calibration Board Settings 誤操作防止
   - SpinBox/ComboBoxを読み取り専用QPushButton + ダイアログ方式に変更
   - Camera Settings（Tab2）と同じ設計思想に統一

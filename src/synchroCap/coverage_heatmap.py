@@ -17,9 +17,13 @@ class CoverageHeatmap:
     showing which image regions have good calibration coverage.
     Each corner point is spread with a Gaussian kernel so that
     the board's covered area appears as a filled surface.
+
+    Uses fixed-scale normalization: the heatmap saturates to red
+    after SAT_CAPTURES overlapping captures at the same pixel.
     """
 
     SIGMA_RATIO: float = 0.05  # sigma = image_width * SIGMA_RATIO
+    SAT_CAPTURES: int = 3  # Saturate to red after this many overlapping captures
 
     def __init__(self, image_size: tuple[int, int]) -> None:
         """Initialize.
@@ -29,6 +33,16 @@ class CoverageHeatmap:
         """
         self._width, self._height = image_size
         self._sigma = max(1.0, self._width * self.SIGMA_RATIO)
+        self._peak = self._compute_single_peak()
+        self._saturation = self._peak * self.SAT_CAPTURES
+
+    def _compute_single_peak(self) -> float:
+        """Compute the peak value of a single-point Gaussian blur."""
+        single = numpy.zeros((self._height, self._width), dtype=numpy.float32)
+        cx, cy = self._width // 2, self._height // 2
+        single[cy, cx] = 1.0
+        blurred = cv2.GaussianBlur(single, (0, 0), self._sigma)
+        return float(blurred.max())
 
     def generate(self, points: numpy.ndarray) -> numpy.ndarray:
         """Generate a heatmap image.
@@ -53,12 +67,8 @@ class CoverageHeatmap:
         # ksize=0 lets OpenCV auto-compute kernel size from sigma
         blurred = cv2.GaussianBlur(point_map, (0, 0), self._sigma)
 
-        # Normalize to 0-255
-        max_val = blurred.max()
-        if max_val > 0:
-            normalized = (blurred / max_val * 255).astype(numpy.uint8)
-        else:
-            normalized = numpy.zeros_like(blurred, dtype=numpy.uint8)
+        # Fixed-scale normalization: saturate at SAT_CAPTURES overlaps
+        normalized = numpy.clip(blurred / self._saturation * 255, 0, 255).astype(numpy.uint8)
 
         # Apply colormap
         colored = cv2.applyColorMap(normalized, cv2.COLORMAP_TURBO)
