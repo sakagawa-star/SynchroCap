@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFrame,
     QGroupBox,
+    QMessageBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -681,8 +682,15 @@ class CalibrationWidget(QWidget):
             logger.error("Export failed: %s", e)
             return
 
-        self._status_label.setText(f"Exported to {export_dir}")
+        resolved = export_dir.resolve()
+        self._status_label.setText(f"Exported to {resolved}")
         logger.info("Exported: %s", [str(p) for p in paths])
+
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Exported to:\n{resolved}",
+        )
 
     def _display_calibration_result(self, result: CalibrationResult) -> None:
         """Update result labels with calibration values."""

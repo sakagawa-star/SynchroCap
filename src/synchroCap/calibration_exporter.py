@@ -45,8 +45,8 @@ class CalibrationExporter:
             If step 2 fails, step 3-4 are skipped.
             If step 4 fails, the TOML file from step 2 remains on disk.
         """
-        toml_path = output_dir / f"{serial}_intrinsics.toml"
-        json_path = output_dir / f"{serial}_intrinsics.json"
+        toml_path = output_dir / f"cam{serial}_intrinsics.toml"
+        json_path = output_dir / f"cam{serial}_intrinsics.json"
 
         toml_str = self._build_toml(result, serial, image_size)
         toml_path.write_text(toml_str, encoding="utf-8")
@@ -66,7 +66,7 @@ class CalibrationExporter:
         image_size: tuple[int, int],
     ) -> str:
         """Build Pose2Sim-compatible TOML string."""
-        cam_name = f"cam_{serial}"
+        cam_name = f"cam{serial}"
         K = result.camera_matrix
         d = result.dist_coeffs.flatten()
 

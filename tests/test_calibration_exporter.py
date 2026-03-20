@@ -51,11 +51,11 @@ class TestBuildToml:
 
     def test_contains_camera_section(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
-        assert f"[cam_{SERIAL}]" in toml_str
+        assert f"[cam{SERIAL}]" in toml_str
 
     def test_name_matches_section(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
-        assert f'name = "cam_{SERIAL}"' in toml_str
+        assert f'name = "cam{SERIAL}"' in toml_str
 
     def test_size_format(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
@@ -155,15 +155,15 @@ class TestExport:
         paths = exporter.export(
             sample_result, SERIAL, IMAGE_SIZE, NUM_IMAGES, tmp_path,
         )
-        assert paths[0].name == f"{SERIAL}_intrinsics.toml"
-        assert paths[1].name == f"{SERIAL}_intrinsics.json"
+        assert paths[0].name == f"cam{SERIAL}_intrinsics.toml"
+        assert paths[1].name == f"cam{SERIAL}_intrinsics.json"
 
     def test_toml_file_content(self, exporter, sample_result, tmp_path):
         paths = exporter.export(
             sample_result, SERIAL, IMAGE_SIZE, NUM_IMAGES, tmp_path,
         )
         content = paths[0].read_text(encoding="utf-8")
-        assert f"[cam_{SERIAL}]" in content
+        assert f"[cam{SERIAL}]" in content
         assert "[metadata]" in content
 
     def test_json_file_parseable(self, exporter, sample_result, tmp_path):

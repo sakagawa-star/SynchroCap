@@ -189,7 +189,8 @@ docs/issues/
 
 ## 現在進行中の案件
 
-feat-014: Wide-Angle Lens Support (On Hold — カメラ映像が撮れないため手動テスト不可。実装・自動テストは完了済み)
+feat-014: Wide-Angle Lens Support (On Hold — カメラ映像が撮れないため手動テスト不可。実装・自動テスト完了済み)
+feat-015: Export Improvements - Naming Convention & Completion Notification (On Hold — 同上)
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 
