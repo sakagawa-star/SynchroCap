@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Added
+- `tools/offline_calibration.py` — 保存済みChArUco画像からオフラインキャリブレーションを実行するCLIツール
+  - 既存モジュール（BoardDetector, CalibrationEngine, CalibrationExporter）を再利用
+  - カメラ未接続環境でもキャリブレーション・エクスポートの検証が可能
 - [feat-013](issues/feat-013-session-save-resume/) Camera Calibration - Session Save/Resume (Board Settings)
   - Board Settings（board_type, cols, rows, square_mm, marker_mm）のJSON永続化
   - ダイアログOK押下時に自動保存（`~/.local/share/synchroCap/board_settings.json`）
