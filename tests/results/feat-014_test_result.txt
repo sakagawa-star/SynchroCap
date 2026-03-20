@@ -1,0 +1,54 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 13 items
+
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_returns_result PASSED [  7%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rms_error_reasonable PASSED [ 15%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_shape PASSED [ 23%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_dist_coeffs_shape PASSED [ 30%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_length PASSED [ 38%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_non_negative PASSED [ 46%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_close_to_known PASSED [ 53%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rvecs_tvecs_length PASSED [ 61%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_raises_valueerror PASSED [ 69%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_empty_list_raises_valueerror PASSED [ 76%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_exactly_four PASSED [ 84%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_constant PASSED [ 92%]
+tests/test_calibration_engine.py::TestWideAngleCalibration::test_wide_angle_calibration PASSED [100%]
+
+============================== 13 passed in 3.00s ==============================
+
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 22 items
+
+tests/test_calibration_exporter.py::TestBuildToml::test_contains_camera_section PASSED [  4%]
+tests/test_calibration_exporter.py::TestBuildToml::test_name_matches_section PASSED [  9%]
+tests/test_calibration_exporter.py::TestBuildToml::test_size_format PASSED [ 13%]
+tests/test_calibration_exporter.py::TestBuildToml::test_matrix_3x3 PASSED [ 18%]
+tests/test_calibration_exporter.py::TestBuildToml::test_distortions_4_elements PASSED [ 22%]
+tests/test_calibration_exporter.py::TestBuildToml::test_rotation_zero PASSED [ 27%]
+tests/test_calibration_exporter.py::TestBuildToml::test_translation_zero PASSED [ 31%]
+tests/test_calibration_exporter.py::TestBuildToml::test_fisheye_false PASSED [ 36%]
+tests/test_calibration_exporter.py::TestBuildToml::test_metadata_section PASSED [ 40%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_json_parseable PASSED [ 45%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_serial PASSED [ 50%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_image_size PASSED [ 54%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_camera_matrix_3x3 PASSED [ 59%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_dist_coeffs_8_elements PASSED [ 63%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_rms_error PASSED [ 68%]
+tests/test_calibration_exporter.py::TestBuildJsonDict::test_num_images PASSED [ 72%]
+tests/test_calibration_exporter.py::TestExport::test_creates_two_files PASSED [ 77%]
+tests/test_calibration_exporter.py::TestExport::test_file_names PASSED   [ 81%]
+tests/test_calibration_exporter.py::TestExport::test_toml_file_content PASSED [ 86%]
+tests/test_calibration_exporter.py::TestExport::test_json_file_parseable PASSED [ 90%]
+tests/test_calibration_exporter.py::TestExport::test_nonexistent_directory_raises PASSED [ 95%]
+tests/test_calibration_exporter.py::TestExport::test_overwrite_existing PASSED [100%]
+
+============================== 22 passed in 0.12s ==============================

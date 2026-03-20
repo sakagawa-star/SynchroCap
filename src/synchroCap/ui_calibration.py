@@ -696,7 +696,8 @@ class CalibrationWidget(QWidget):
         self._dist_label.setText(
             f"k1={d[0]:.4f}, k2={d[1]:.4f}\n"
             f"p1={d[2]:.4f}, p2={d[3]:.4f}\n"
-            f"k3={d[4]:.4f}"
+            f"k3={d[4]:.4f}, k4={d[5]:.4f}\n"
+            f"k5={d[6]:.4f}, k6={d[7]:.4f}"
         )
 
     def _clear_calibration_result(self) -> None:

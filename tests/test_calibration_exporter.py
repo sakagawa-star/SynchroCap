@@ -24,7 +24,7 @@ def sample_result() -> CalibrationResult:
             [0.0, 0.0, 1.0],
         ], dtype=numpy.float64),
         dist_coeffs=numpy.array(
-            [[-0.0812, 0.1243, -0.0003, 0.0001, 0.0056]],
+            [[-0.0812, 0.1243, -0.0003, 0.0001, 0.0056, 0.0012, -0.0034, 0.0078]],
             dtype=numpy.float64,
         ),
         rvecs=[numpy.zeros((3, 1))],
@@ -70,8 +70,11 @@ class TestBuildToml:
     def test_distortions_4_elements(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
         assert "distortions = [-0.0812, 0.1243, -0.0003, 0.0001]" in toml_str
-        # k3 (0.0056) should NOT be present in distortions
+        # k3-k6 should NOT be present in distortions (only k1,k2,p1,p2)
         assert "0.0056" not in toml_str
+        assert "0.0012" not in toml_str
+        assert "-0.0034" not in toml_str
+        assert "0.0078" not in toml_str
 
     def test_rotation_zero(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
@@ -120,10 +123,11 @@ class TestBuildJsonDict:
         assert matrix[0][0] == pytest.approx(800.1234)
         assert matrix[1][1] == pytest.approx(800.9876)
 
-    def test_dist_coeffs_5_elements(self, exporter, sample_result):
+    def test_dist_coeffs_8_elements(self, exporter, sample_result):
         d = exporter._build_json_dict(sample_result, SERIAL, IMAGE_SIZE, NUM_IMAGES)
-        assert len(d["dist_coeffs"]) == 5
+        assert len(d["dist_coeffs"]) == 8
         assert d["dist_coeffs"][4] == pytest.approx(0.0056)
+        assert d["dist_coeffs"][7] == pytest.approx(0.0078)
 
     def test_rms_error(self, exporter, sample_result):
         d = exporter._build_json_dict(sample_result, SERIAL, IMAGE_SIZE, NUM_IMAGES)

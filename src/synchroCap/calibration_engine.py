@@ -20,7 +20,7 @@ class CalibrationResult:
     """Calibration calculation result."""
     rms_error: float                     # RMS reprojection error (pixels)
     camera_matrix: numpy.ndarray         # shape=(3,3), float64
-    dist_coeffs: numpy.ndarray           # shape=(1,5), float64
+    dist_coeffs: numpy.ndarray           # shape=(1,8), float64
     rvecs: list[numpy.ndarray]           # per-image rotation vectors
     tvecs: list[numpy.ndarray]           # per-image translation vectors
     per_image_errors: list[float]        # per-image RMS reprojection error (pixels)
@@ -69,7 +69,13 @@ class CalibrationEngine:
             image_size,
             None,
             None,
+            flags=cv2.CALIB_RATIONAL_MODEL,
         )
+        # cv2.CALIB_RATIONAL_MODEL returns shape=(1,14).
+        # Trim to first 8 coefficients (k1,k2,p1,p2,k3,k4,k5,k6).
+        # Remaining 6 (s1-s4, τx, τy) are thin-prism/tilted-sensor
+        # parameters, not enabled and always zero.
+        dist_coeffs = dist_coeffs[:, :8]
 
         per_image_errors = self._compute_per_image_errors(
             object_points_list,

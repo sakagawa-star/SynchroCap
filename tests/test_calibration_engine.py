@@ -105,10 +105,10 @@ class TestCalibrationEngine:
         assert result.camera_matrix.shape == (3, 3)
 
     def test_dist_coeffs_shape(self):
-        """Distortion coefficients should be (1, 5)."""
+        """Distortion coefficients should be (1, 8) with rational model."""
         obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
         result = self.engine.calibrate(obj_pts, img_pts, img_size)
-        assert result.dist_coeffs.shape == (1, 5)
+        assert result.dist_coeffs.shape == (1, 8)
 
     def test_per_image_errors_length(self):
         """per_image_errors list length should match capture count."""
@@ -165,3 +165,51 @@ class TestCalibrationEngine:
     def test_min_captures_constant(self):
         """MIN_CAPTURES should be 4."""
         assert CalibrationEngine.MIN_CAPTURES == 4
+
+
+_REAL_IMAGE_DIR = Path(__file__).resolve().parent.parent / "src" / "synchroCap" / "captures" / "20260318-141544" / "intrinsics" / "cam05520125"
+
+
+@pytest.mark.skipif(
+    not _REAL_IMAGE_DIR.is_dir(),
+    reason="Test images not available",
+)
+class TestWideAngleCalibration:
+    """Integration test with real wide-angle lens images (LM3NC1M 3.5mm)."""
+
+    def setup_method(self):
+        from board_detector import BoardDetector
+        self.engine = CalibrationEngine()
+        self.detector = BoardDetector()
+
+    def test_wide_angle_calibration(self):
+        """Calibrate with 37 real wide-angle images, RMS < 1.0px."""
+        images = sorted(_REAL_IMAGE_DIR.glob("*.png"))
+        assert len(images) > 0
+
+        obj_list = []
+        img_list = []
+        image_size = None
+
+        for img_path in images:
+            bgr = cv2.imread(str(img_path))
+            if bgr is None:
+                continue
+            if image_size is None:
+                h, w = bgr.shape[:2]
+                image_size = (w, h)
+
+            result = self.detector.detect(bgr)
+            if result.success:
+                obj_list.append(result.object_points)
+                img_list.append(result.image_points)
+
+        assert len(obj_list) >= CalibrationEngine.MIN_CAPTURES, (
+            f"Only {len(obj_list)} detections from {len(images)} images"
+        )
+
+        cal = self.engine.calibrate(obj_list, img_list, image_size)
+
+        assert cal.rms_error < 1.0, f"RMS too high: {cal.rms_error:.4f}"
+        assert cal.dist_coeffs.shape == (1, 8)
+        assert cal.camera_matrix.shape == (3, 3)
