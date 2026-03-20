@@ -10,12 +10,13 @@ PTP (Precision Time Protocol, IEEE 1588) を使用して複数の産業用カメ
 - SRAW形式によるRaw録画
 - マルチビューでの複数カメラプレビュー
 - フレームタイムスタンプのCSV記録
+- カメラキャリブレーション（ChArUcoボード自動検出、8係数歪みモデル、Pose2Simエクスポート）
 
 ## 技術スタック
 
 | 項目 | 技術 |
 |------|------|
-| 言語 | Python 3.x |
+| 言語 | Python 3.10 |
 | GUI | PySide6 (Qt6) |
 | カメラSDK | imagingcontrol4 (IC4) — The Imaging Source社製産業用カメラ用 |
 | 動画エンコード | ffmpeg with hevc_nvenc (NVIDIA GPU) |
@@ -109,13 +110,15 @@ python main.py
 
 ## アプリケーション構成
 
-アプリケーションは3つのタブで構成されています。
+アプリケーションは5つのタブで構成されています。
 
 | タブ | 名称 | 説明 |
 |------|------|------|
 | Tab1 | Channel Manager | カメラとチャンネルID (01-99) の紐付け管理 |
-| Tab2 | Camera Settings | 個別カメラのプロパティ設定 |
+| Tab2 | Camera Settings | 個別カメラのプロパティ設定（Resolution, PixelFormat, FPS, Trigger, WB, Exposure, Gain） |
 | Tab3 | Multi View | マルチカメラプレビュー・PTP同期録画 |
+| Tab4 | Camera Settings Viewer | 全カメラの設定値一覧表示・設定一致チェック |
+| Tab5 | Calibration | カメラキャリブレーション（ライブビュー + ボード検出 + 自動キャプチャ + 計算 + エクスポート） |
 
 ## 録画の仕組み
 
@@ -134,34 +137,84 @@ python main.py
 
 出力先: `captures/YYYYMMDD-HHmmss/` 配下にカメラごとのファイルを生成
 
+## カメラキャリブレーション
+
+Tab5 (Calibration) では、カメラの内部パラメータ（焦点距離、主点、歪み係数）を算出できます。
+
+### ワークフロー
+
+1. **ライブビュー + ボード検出**: カメラを選択するとライブビューが開始し、ChArUcoボードをリアルタイム検出
+2. **自動キャプチャ**: ボードを2秒間安定して検出すると自動的にキャプチャ（3秒クールダウン）
+3. **カバレッジヒートマップ**: 検出済みコーナーの分布をヒートマップでオーバーレイ表示（次にボードをどこに置くべきかを可視化）
+4. **キャリブレーション計算**: 4枚以上キャプチャ後、カメラ行列・歪み係数（8係数 Rational Model）・RMS再投影誤差を算出
+5. **エクスポート**: Pose2Sim互換TOML + 汎用JSON形式で出力
+
+### ボード設定
+
+| 項目 | デフォルト値 |
+|------|-------------|
+| ボードタイプ | ChArUco |
+| 列×行 | 5×7 |
+| 正方形サイズ | 30.0 mm |
+| マーカーサイズ | 22.0 mm |
+| ArUco辞書 | DICT_6X6_250 |
+
+ボード設定はアプリ終了後も永続化されます（`~/.local/share/synchroCap/board_settings.json`）。
+
+### エクスポート形式
+
+| ファイル | 内容 |
+|----------|------|
+| `cam{serial}_intrinsics.toml` | Pose2Sim互換（カメラ行列、歪み係数4パラメータ） |
+| `cam{serial}_intrinsics.json` | OpenCV完全互換（カメラ行列、歪み係数8パラメータ） |
+
+保存先: `captures/{timestamp}/intrinsics/cam{serial}/`
+
+## CLIツール
+
+| ツール | 説明 |
+|--------|------|
+| `tools/offline_calibration.py` | 保存済みChArUco画像からオフラインキャリブレーションを実行 |
+| `tools/raw_tool.py` | Rawファイルの検証・表示・エンコード |
+| `tools/calibrate_intrinsics.py` | チェスボードからのキャリブレーション（レガシー） |
+
 ## ディレクトリ構成
 
 ```
 SynchroCap/
 ├── src/
-│   └── synchroCap/           # メインアプリケーション
-│       ├── main.py           # エントリーポイント
-│       ├── mainwindow.py     # メインウィンドウ
-│       ├── ui_multi_view.py  # マルチビューUI・録画統合
+│   └── synchroCap/                  # メインアプリケーション
+│       ├── main.py                  # エントリーポイント
+│       ├── mainwindow.py            # メインウィンドウ・タブ管理
+│       ├── ui_channel_manager.py    # Tab1: チャンネル管理
+│       ├── ui_camera_settings.py    # Tab2: 個別カメラ設定
+│       ├── ui_multi_view.py         # Tab3: マルチビューUI・録画統合
+│       ├── ui_camera_settings_viewer.py  # Tab4: カメラ設定ビューア
+│       ├── ui_calibration.py        # Tab5: キャリブレーション
 │       ├── recording_controller.py  # 録画制御ロジック
-│       └── ...
+│       ├── board_detector.py        # ChArUcoボード検出
+│       ├── calibration_engine.py    # キャリブレーション計算エンジン
+│       ├── calibration_exporter.py  # TOML/JSONエクスポート
+│       ├── coverage_heatmap.py      # カバレッジヒートマップ生成
+│       ├── stability_trigger.py     # 安定検出トリガー
+│       ├── board_settings_store.py  # Board Settings永続化
+│       ├── channel_registry.py      # チャンネル登録管理
+│       └── device_resolver.py       # シリアル→DeviceInfo解決
 ├── dev/
-│   └── tutorials/            # チュートリアル・サンプルコード
-├── docs/                     # ドキュメント
-│   ├── BACKLOG.md            # 案件一覧
-│   ├── CHANGELOG.md          # リリース履歴
-│   ├── architecture.md       # アーキテクチャ概要
-│   ├── requirements.md       # 要件定義
-│   ├── feature_design.md     # 機能設計書
-│   └── issues/               # 個別案件フォルダ
-├── tools/                    # CLIツール
-└── output/                   # 録画出力先
+│   └── tutorials/                   # チュートリアル・サンプルコード
+├── docs/                            # ドキュメント
+│   ├── BACKLOG.md                   # 案件一覧
+│   ├── CHANGELOG.md                 # リリース履歴
+│   ├── architecture.md              # アーキテクチャ概要
+│   └── issues/                      # 個別案件フォルダ
+├── tools/                           # CLIツール
+├── tests/                           # テストコード
+└── output/                          # 録画出力先
 ```
 
 ## ドキュメント
 
 - [docs/architecture.md](docs/architecture.md) — アーキテクチャ概要・コンポーネント設計
-- [docs/requirements.md](docs/requirements.md) — 要求仕様
-- [docs/feature_design.md](docs/feature_design.md) — 機能設計書
 - [docs/BACKLOG.md](docs/BACKLOG.md) — 案件一覧とステータス
 - [docs/CHANGELOG.md](docs/CHANGELOG.md) — リリース履歴
+- [docs/TECH_STACK.md](docs/TECH_STACK.md) — 技術スタック定義書
