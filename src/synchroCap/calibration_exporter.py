@@ -80,9 +80,8 @@ class CalibrationExporter:
             f"[{K[1,0]:.4f}, {K[1,1]:.4f}, {K[1,2]:.4f}], "
             f"[{K[2,0]:.4f}, {K[2,1]:.4f}, {K[2,2]:.4f}]]"
         )
-        lines.append(
-            f"distortions = [{d[0]:.4f}, {d[1]:.4f}, {d[2]:.4f}, {d[3]:.4f}]"
-        )
+        dist_vals = ", ".join(f"{v:.4f}" for v in d)
+        lines.append(f"distortions = [{dist_vals}]")
         lines.append("rotation = [0.0, 0.0, 0.0]")
         lines.append("translation = [0.0, 0.0, 0.0]")
         lines.append("fisheye = false")

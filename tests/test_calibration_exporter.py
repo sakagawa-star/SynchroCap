@@ -67,14 +67,12 @@ class TestBuildToml:
         assert "[0.0000, 800.9876, 240.4321]," in toml_str
         assert "[0.0000, 0.0000, 1.0000]]" in toml_str
 
-    def test_distortions_4_elements(self, exporter, sample_result):
+    def test_distortions_8_elements(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)
-        assert "distortions = [-0.0812, 0.1243, -0.0003, 0.0001]" in toml_str
-        # k3-k6 should NOT be present in distortions (only k1,k2,p1,p2)
-        assert "0.0056" not in toml_str
-        assert "0.0012" not in toml_str
-        assert "-0.0034" not in toml_str
-        assert "0.0078" not in toml_str
+        assert (
+            "distortions = [-0.0812, 0.1243, -0.0003, 0.0001, 0.0056, 0.0012, -0.0034, 0.0078]"
+            in toml_str
+        )
 
     def test_rotation_zero(self, exporter, sample_result):
         toml_str = exporter._build_toml(sample_result, SERIAL, IMAGE_SIZE)

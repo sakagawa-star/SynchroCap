@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - SpinBox/ComboBoxを読み取り専用QPushButton + ダイアログ方式に変更
   - Camera Settings（Tab2）と同じ設計思想に統一
 
+### Changed
+- [feat-016](issues/feat-016-toml-8-coeff-distortions/) TOML Export — 8-Coefficient Distortions
+  - TOML の `distortions` を4パラメータ（k1, k2, p1, p2）から8パラメータ（k1, k2, p1, p2, k3, k4, k5, k6）に拡張
+  - Pose2Sim は配列長を検証せず OpenCV にそのまま渡すため、8係数が有効に活用される
+
 ### Added
 - `tools/offline_calibration.py` — 保存済みChArUco画像からオフラインキャリブレーションを実行するCLIツール
   - 既存モジュール（BoardDetector, CalibrationEngine, CalibrationExporter）を再利用
