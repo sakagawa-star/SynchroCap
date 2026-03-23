@@ -13,6 +13,7 @@
 | [feat-014](issues/feat-014-wide-angle-calibration/) | Feature | Camera Calibration - Wide-Angle Lens Support (8-coefficient model) | On Hold |
 | [feat-015](issues/feat-015-export-improvements/) | Feature | Export Improvements - Naming Convention & Completion Notification | On Hold |
 | [feat-016](issues/feat-016-toml-8-coeff-distortions/) | Feature | TOML Export — 8-Coefficient Distortions | Closed |
+| [feat-017](issues/feat-017-live-view-during-recording/) | Feature | Live View During Recording | Closed |
 
 ## Closed
 

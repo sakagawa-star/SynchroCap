@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Changed
+- [feat-017](issues/feat-017-live-view-during-recording/) Live View During Recording
+  - 録画中もマルチビュー（Tab3）のライブビューが継続表示されるようになった
+  - `stream_setup()` に display 引数を追加し、IC4 SDK が sink と display に独立してフレームを配信
 - [feat-016](issues/feat-016-toml-8-coeff-distortions/) TOML Export — 8-Coefficient Distortions
   - TOML の `distortions` を4パラメータ（k1, k2, p1, p2）から8パラメータ（k1, k2, p1, p2, k3, k4, k5, k6）に拡張
   - Pose2Sim は配列長を検証せず OpenCV にそのまま渡すため、8係数が有効に活用される

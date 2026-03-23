@@ -58,6 +58,7 @@ class RecordingSlot:
     """各カメラスロットの録画コンテキスト"""
     serial: str
     grabber: ic4.Grabber
+    display: Optional[Any] = None  # ic4.Display (ライブビュー用)
     recording_sink: Optional[ic4.QueueSink] = None
     recording_listener: Optional[ic4.QueueSinkListener] = None
     ffmpeg_proc: Optional[subprocess.Popen] = None
@@ -257,6 +258,7 @@ class RecordingController:
             recording_slot = RecordingSlot(
                 serial=str(serial),
                 grabber=grabber,
+                display=slot.get("display"),
                 trigger_interval_fps=float(trigger_interval_fps),
             )
             self._slots.append(recording_slot)
@@ -525,6 +527,7 @@ class RecordingController:
             try:
                 slot.grabber.stream_setup(
                     slot.recording_sink,
+                    display=slot.display,
                     setup_option=ic4.StreamSetupOption.DEFER_ACQUISITION_START,
                 )
                 slot.recording_sink.alloc_and_queue_buffers(self.QUEUE_BUFFER_COUNT)
