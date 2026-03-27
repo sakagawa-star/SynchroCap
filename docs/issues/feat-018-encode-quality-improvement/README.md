@@ -1,6 +1,6 @@
 # feat-018: Raw→MP4 エンコード品質改善
 
-## Status: Open
+## Status: Closed
 
 ## 概要
 

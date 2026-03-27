@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Camera Settings（Tab2）と同じ設計思想に統一
 
 ### Changed
+- [feat-018](issues/feat-018-encode-quality-improvement/) Raw→MP4 Encode Quality Improvement
+  - `tools/raw_tool.py` のエンコードオプションを高品質化: CBR 2200kbps → Constant QP (qp=20)、preset p4 → p7、yuv420p → yuv444p (profile rext)
+  - `--qp` CLIオプション追加（0〜51、デフォルト20）
 - [feat-017](issues/feat-017-live-view-during-recording/) Live View During Recording
   - 録画中もマルチビュー（Tab3）のライブビューが継続表示されるようになった
   - `stream_setup()` に display 引数を追加し、IC4 SDK が sink と display に独立してフレームを配信

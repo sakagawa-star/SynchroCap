@@ -43,7 +43,7 @@
 
 | コマンド名 | 用途 | 使用箇所 | 備考 |
 |-----------|------|---------|------|
-| ffmpeg（hevc_nvenc） | 動画エンコード（rawvideo → MP4） | recording_controller | NVIDIA GPU 必須、フォールバックなし |
+| ffmpeg（hevc_nvenc） | 動画エンコード（rawvideo → MP4） | recording_controller, tools/raw_tool.py | NVIDIA GPU 必須、フォールバックなし |
 | ptp4l | PTP Grandmaster 実装 | システムサービス（アプリ外） | linuxptp パッケージ |
 | phc2sys | PHC-SystemClock 同期 | システムサービス（アプリ外） | linuxptp パッケージ |
 | pmc | PTP Management Client | ptp_sync_check, chktimestat | linuxptp パッケージ |

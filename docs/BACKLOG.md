@@ -14,7 +14,7 @@
 | [feat-015](issues/feat-015-export-improvements/) | Feature | Export Improvements - Naming Convention & Completion Notification | On Hold |
 | [feat-016](issues/feat-016-toml-8-coeff-distortions/) | Feature | TOML Export — 8-Coefficient Distortions | Closed |
 | [feat-017](issues/feat-017-live-view-during-recording/) | Feature | Live View During Recording | Closed |
-| [feat-018](issues/feat-018-encode-quality-improvement/) | Feature | Raw→MP4 Encode Quality Improvement | Open |
+| [feat-018](issues/feat-018-encode-quality-improvement/) | Feature | Raw→MP4 Encode Quality Improvement | Closed |
 
 ## Closed
 
