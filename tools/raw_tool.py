@@ -610,7 +610,9 @@ def cmd_view(args: argparse.Namespace) -> int:
 
     # Decode BayerGR8 → BGR
     bayer = np.frombuffer(payload, dtype=np.uint8).reshape((file_hdr.height, file_hdr.width))
-    bgr = cv2.cvtColor(bayer, cv2.COLOR_BayerGR2BGR)
+    # GenICam BayerGR8 corresponds to OpenCV's BayerGB pattern
+    # (OpenCV names the pattern from the 2nd row/column).
+    bgr = cv2.cvtColor(bayer, cv2.COLOR_BayerGB2BGR)
 
     # Console output
     basename = os.path.basename(raw_file)

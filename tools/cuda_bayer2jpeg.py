@@ -11,7 +11,8 @@ gpu_mat = cv2.cuda_GpuMat()
 gpu_mat.upload(bayer)
 
 # GPUでBayerGR8 -> BGR変換
-gpu_bgr = cv2.cuda.cvtColor(gpu_mat, cv2.COLOR_BayerGR2BGR)
+# GenICamのBayerGR8はOpenCVではBayerGBパターンに対応する
+gpu_bgr = cv2.cuda.cvtColor(gpu_mat, cv2.COLOR_BayerGB2BGR)
 
 # CPUに戻す
 bgr_img = gpu_bgr.download()
