@@ -1,0 +1,28 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 19 items
+
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_returns_result PASSED [  5%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rms_error_reasonable PASSED [ 10%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_shape PASSED [ 15%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_dist_coeffs_shape PASSED [ 21%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_length PASSED [ 26%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_non_negative PASSED [ 31%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_close_to_known PASSED [ 36%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rvecs_tvecs_length PASSED [ 42%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_raises_valueerror PASSED [ 47%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_empty_list_raises_valueerror PASSED [ 52%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_exactly_four PASSED [ 57%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_constant PASSED [ 63%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_wide_returns_8_coeffs PASSED [ 68%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_normal_returns_5_coeffs PASSED [ 73%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_default_is_wide PASSED [ 78%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_invalid_lens_model_raises PASSED [ 84%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_normal_accuracy PASSED [ 89%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_export_normal_5_distortions PASSED [ 94%]
+tests/test_calibration_engine.py::TestWideAngleCalibration::test_wide_angle_calibration PASSED [100%]
+
+============================== 19 passed in 4.80s ==============================

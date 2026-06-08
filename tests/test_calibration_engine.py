@@ -166,6 +166,80 @@ class TestCalibrationEngine:
         """MIN_CAPTURES should be 4."""
         assert CalibrationEngine.MIN_CAPTURES == 4
 
+    # --- feat-019: lens model selection ---
+
+    def test_calibrate_wide_returns_8_coeffs(self):
+        """lens_model='wide' should return (1, 8) dist_coeffs."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        result = self.engine.calibrate(obj_pts, img_pts, img_size, lens_model="wide")
+        assert result.dist_coeffs.shape == (1, 8)
+
+    def test_calibrate_normal_returns_5_coeffs(self):
+        """lens_model='normal' should return (1, 5) dist_coeffs."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        result = self.engine.calibrate(obj_pts, img_pts, img_size, lens_model="normal")
+        assert result.dist_coeffs.shape == (1, 5)
+
+    def test_calibrate_default_is_wide(self):
+        """Default lens_model should be 'wide' (8 coefficients)."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        result = self.engine.calibrate(obj_pts, img_pts, img_size)
+        assert result.dist_coeffs.shape == (1, 8)
+
+    def test_calibrate_invalid_lens_model_raises(self):
+        """Invalid lens_model should raise ValueError."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        with pytest.raises(ValueError, match="Unknown lens_model"):
+            self.engine.calibrate(obj_pts, img_pts, img_size, lens_model="fisheye")
+
+    def test_calibrate_normal_accuracy(self):
+        """lens_model='normal' should estimate camera matrix accurately."""
+        obj_pts, img_pts, img_size, known_matrix = _generate_synthetic_data(
+            num_images=20,
+        )
+        result = self.engine.calibrate(obj_pts, img_pts, img_size, lens_model="normal")
+        assert result.rms_error < 1.0
+        # fx, fy should be within 5% of known values
+        assert abs(result.camera_matrix[0, 0] - known_matrix[0, 0]) < known_matrix[0, 0] * 0.05
+        assert abs(result.camera_matrix[1, 1] - known_matrix[1, 1]) < known_matrix[1, 1] * 0.05
+        # cx, cy should be within 10 pixels
+        assert abs(result.camera_matrix[0, 2] - known_matrix[0, 2]) < 10.0
+        assert abs(result.camera_matrix[1, 2] - known_matrix[1, 2]) < 10.0
+
+    def test_export_normal_5_distortions(self, tmp_path):
+        """Export of a 5-coefficient result should write 5-element arrays."""
+        import json
+
+        from calibration_exporter import CalibrationExporter
+
+        result = CalibrationResult(
+            rms_error=0.5,
+            camera_matrix=numpy.eye(3, dtype=numpy.float64),
+            dist_coeffs=numpy.zeros((1, 5), dtype=numpy.float64),
+            rvecs=[],
+            tvecs=[],
+            per_image_errors=[],
+        )
+        exporter = CalibrationExporter()
+        toml_path, json_path = exporter.export(
+            result=result,
+            serial="00000000",
+            image_size=(640, 480),
+            num_images=10,
+            output_dir=tmp_path,
+        )
+
+        toml_text = toml_path.read_text(encoding="utf-8")
+        dist_line = next(
+            line for line in toml_text.splitlines()
+            if line.startswith("distortions = ")
+        )
+        assert len(dist_line.split(",")) == 5
+
+        with open(json_path, encoding="utf-8") as f:
+            json_dict = json.load(f)
+        assert len(json_dict["dist_coeffs"]) == 5
+
 
 _REAL_IMAGE_DIR = Path(__file__).resolve().parent.parent / "src" / "synchroCap" / "captures" / "20260318-141544" / "intrinsics" / "cam05520125"
 

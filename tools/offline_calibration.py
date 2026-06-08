@@ -17,6 +17,9 @@ Example:
         src/synchroCap/captures/20260318-141544/intrinsics/cam05520125 \
         05520125 \
         --cols 5 --rows 7 --square-mm 30.0 --marker-mm 22.0
+
+    # Normal (non-wide-angle) lens: 5-coefficient model
+    python tools/offline_calibration.py <image_dir> <serial> --lens normal
 """
 
 from __future__ import annotations
@@ -55,6 +58,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--marker-mm", type=float, default=22.0, help="Marker size in mm (default: 22.0)"
+    )
+    parser.add_argument(
+        "--lens",
+        choices=["normal", "wide"],
+        default="wide",
+        help="Lens type: 'normal' = 5-coefficient model (k1,k2,p1,p2,k3), "
+             "'wide' = rational 8-coefficient model (default: wide)",
     )
     parser.add_argument(
         "--output-dir",
@@ -125,7 +135,9 @@ def main() -> int:
 
     # Calibrate
     engine = CalibrationEngine()
-    calib_result = engine.calibrate(object_points_list, image_points_list, image_size)
+    calib_result = engine.calibrate(
+        object_points_list, image_points_list, image_size, lens_model=args.lens
+    )
 
     # Display results
     print(f"\n{'=' * 50}")
@@ -136,7 +148,7 @@ def main() -> int:
     print(f"\nDistortion coefficients ({calib_result.dist_coeffs.shape[1]} coefficients):")
     d = calib_result.dist_coeffs.flatten()
     labels = ["k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6"]
-    for i, (label, val) in enumerate(zip(labels, d)):
+    for label, val in zip(labels, d):
         print(f"  {label} = {val:.6f}")
     print(f"\nPer-image errors:")
     for i, err in enumerate(calib_result.per_image_errors):

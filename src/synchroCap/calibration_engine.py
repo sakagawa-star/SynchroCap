@@ -20,7 +20,7 @@ class CalibrationResult:
     """Calibration calculation result."""
     rms_error: float                     # RMS reprojection error (pixels)
     camera_matrix: numpy.ndarray         # shape=(3,3), float64
-    dist_coeffs: numpy.ndarray           # shape=(1,8), float64
+    dist_coeffs: numpy.ndarray           # shape=(1,5) or (1,8), float64
     rvecs: list[numpy.ndarray]           # per-image rotation vectors
     tvecs: list[numpy.ndarray]           # per-image translation vectors
     per_image_errors: list[float]        # per-image RMS reprojection error (pixels)
@@ -40,6 +40,7 @@ class CalibrationEngine:
         object_points_list: list[numpy.ndarray],
         image_points_list: list[numpy.ndarray],
         image_size: tuple[int, int],
+        lens_model: str = "wide",
     ) -> CalibrationResult:
         """Run camera calibration.
 
@@ -49,19 +50,28 @@ class CalibrationEngine:
             image_points_list: Per-capture image points.
                 Each element: shape=(N,1,2), float32.
             image_size: Image size (width, height).
+            lens_model: "normal" = standard 5-coefficient model
+                (k1,k2,p1,p2,k3), "wide" = rational 8-coefficient
+                model (k1,k2,p1,p2,k3,k4,k5,k6).
 
         Returns:
             CalibrationResult with all calibration parameters.
+            dist_coeffs shape: (1,5) for "normal", (1,8) for "wide".
 
         Raises:
+            ValueError: If lens_model is not "normal" or "wide".
             ValueError: If len(object_points_list) < MIN_CAPTURES.
             cv2.error: If cv2.calibrateCamera() fails.
         """
+        if lens_model not in ("normal", "wide"):
+            raise ValueError(f"Unknown lens_model: {lens_model}")
         if len(object_points_list) < self.MIN_CAPTURES:
             raise ValueError(
                 f"At least {self.MIN_CAPTURES} captures required, "
                 f"got {len(object_points_list)}"
             )
+
+        flags = cv2.CALIB_RATIONAL_MODEL if lens_model == "wide" else 0
 
         rms, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
             object_points_list,
@@ -69,12 +79,14 @@ class CalibrationEngine:
             image_size,
             None,
             None,
-            flags=cv2.CALIB_RATIONAL_MODEL,
+            flags=flags,
         )
-        # cv2.CALIB_RATIONAL_MODEL returns shape=(1,14).
+        # wide: cv2.CALIB_RATIONAL_MODEL returns shape=(1,14).
         # Trim to first 8 coefficients (k1,k2,p1,p2,k3,k4,k5,k6).
         # Remaining 6 (s1-s4, τx, τy) are thin-prism/tilted-sensor
         # parameters, not enabled and always zero.
+        # normal: flags=0 returns shape=(1,5); the slice is a no-op
+        # (numpy slicing stops at the array bounds).
         dist_coeffs = dist_coeffs[:, :8]
 
         per_image_errors = self._compute_per_image_errors(
@@ -87,8 +99,8 @@ class CalibrationEngine:
         )
 
         logger.info(
-            "Calibration done: RMS=%.4f px, %d images",
-            rms, len(object_points_list),
+            "Calibration done: RMS=%.4f px, %d images, model=%s",
+            rms, len(object_points_list), lens_model,
         )
 
         return CalibrationResult(
