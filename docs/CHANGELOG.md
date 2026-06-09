@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Pose2Sim は配列長を検証せず OpenCV にそのまま渡すため、8係数が有効に活用される
 
 ### Added
+- [feat-020](issues/feat-020-spec-intrinsic-guess/) Offline Calibration - Spec-based Intrinsic Guess
+  - `tools/offline_calibration.py` に `--use-spec-guess` / `--focal-mm` / `--pixel-pitch-mm` を追加。メーカー工業値（焦点距離・画素ピッチ）から初期カメラ行列 K を組み立て、`cv2.CALIB_USE_INTRINSIC_GUESS` で最適化の初期推定値として渡す（K は固定しない）
+  - `--fix-aspect-ratio` を追加。アスペクト比 `fx/fy`（正方画素なら 1.0）を固定する（`cv2.CALIB_FIX_ASPECT_RATIO`）。`fx/fy = py/px` で `fmm` が約分で消え、信頼できる画素ピッチのみで決まるため固定が安全。スケール・主点は固定しない
+  - `CalibrationEngine.calibrate()` に `initial_camera_matrix` / `fix_aspect_ratio` 引数を追加（デフォルトで後方互換、GUI 無変更）
+  - 良条件データでは初期推定値は実質ノーオペ（同一の大域最適解に収束）、悪条件（少数枚）では収束安定化に寄与することを実データで確認
 - `tools/offline_calibration.py` — 保存済みChArUco画像からオフラインキャリブレーションを実行するCLIツール
   - 既存モジュール（BoardDetector, CalibrationEngine, CalibrationExporter）を再利用
   - カメラ未接続環境でもキャリブレーション・エクスポートの検証が可能

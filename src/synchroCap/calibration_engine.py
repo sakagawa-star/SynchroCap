@@ -41,6 +41,8 @@ class CalibrationEngine:
         image_points_list: list[numpy.ndarray],
         image_size: tuple[int, int],
         lens_model: str = "wide",
+        initial_camera_matrix: numpy.ndarray | None = None,
+        fix_aspect_ratio: bool = False,
     ) -> CalibrationResult:
         """Run camera calibration.
 
@@ -53,6 +55,15 @@ class CalibrationEngine:
             lens_model: "normal" = standard 5-coefficient model
                 (k1,k2,p1,p2,k3), "wide" = rational 8-coefficient
                 model (k1,k2,p1,p2,k3,k4,k5,k6).
+            initial_camera_matrix: Optional 3x3 initial camera matrix.
+                When given, it is passed as an intrinsic guess
+                (CALIB_USE_INTRINSIC_GUESS); the matrix is the
+                optimization starting point and is NOT fixed. When None
+                (default), OpenCV estimates the initial matrix internally.
+            fix_aspect_ratio: When True, fix the fx/fy ratio to the ratio
+                of initial_camera_matrix (CALIB_FIX_ASPECT_RATIO). Only
+                the ratio is fixed; scale (fy) and principal point remain
+                free. Requires initial_camera_matrix (the ratio source).
 
         Returns:
             CalibrationResult with all calibration parameters.
@@ -61,6 +72,9 @@ class CalibrationEngine:
         Raises:
             ValueError: If lens_model is not "normal" or "wide".
             ValueError: If len(object_points_list) < MIN_CAPTURES.
+            ValueError: If initial_camera_matrix is given and not shape (3,3).
+            ValueError: If fix_aspect_ratio is True but
+                initial_camera_matrix is None.
             cv2.error: If cv2.calibrateCamera() fails.
         """
         if lens_model not in ("normal", "wide"):
@@ -70,14 +84,37 @@ class CalibrationEngine:
                 f"At least {self.MIN_CAPTURES} captures required, "
                 f"got {len(object_points_list)}"
             )
+        if initial_camera_matrix is not None and initial_camera_matrix.shape != (3, 3):
+            raise ValueError(
+                f"initial_camera_matrix must be shape (3,3), "
+                f"got {initial_camera_matrix.shape}"
+            )
+        if fix_aspect_ratio and initial_camera_matrix is None:
+            # Not an OpenCV constraint (cv2 would silently fix the ratio to
+            # its internal ~1.0 default), but the fixed ratio would then have
+            # no meaningful source. Reject it as an application-layer safety.
+            raise ValueError(
+                "fix_aspect_ratio=True requires initial_camera_matrix"
+            )
 
         flags = cv2.CALIB_RATIONAL_MODEL if lens_model == "wide" else 0
+        if initial_camera_matrix is not None:
+            flags |= cv2.CALIB_USE_INTRINSIC_GUESS
+            # cv2.calibrateCamera() updates cameraMatrix in-place AND returns
+            # the same object when CALIB_USE_INTRINSIC_GUESS is set. Copy so
+            # the caller's initial matrix is preserved and stays independent
+            # of the returned (optimized) matrix.
+            camera_matrix_arg = initial_camera_matrix.astype(numpy.float64).copy()
+        else:
+            camera_matrix_arg = None
+        if fix_aspect_ratio:
+            flags |= cv2.CALIB_FIX_ASPECT_RATIO
 
         rms, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
             object_points_list,
             image_points_list,
             image_size,
-            None,
+            camera_matrix_arg,
             None,
             flags=flags,
         )
@@ -99,8 +136,10 @@ class CalibrationEngine:
         )
 
         logger.info(
-            "Calibration done: RMS=%.4f px, %d images, model=%s",
+            "Calibration done: RMS=%.4f px, %d images, model=%s, "
+            "intrinsic_guess=%s, fix_aspect_ratio=%s",
             rms, len(object_points_list), lens_model,
+            initial_camera_matrix is not None, fix_aspect_ratio,
         )
 
         return CalibrationResult(

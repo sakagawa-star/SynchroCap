@@ -2,7 +2,7 @@
 
 ## Status
 
-Open
+Closed
 
 ## 概要
 

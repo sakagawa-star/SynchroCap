@@ -20,6 +20,15 @@ Example:
 
     # Normal (non-wide-angle) lens: 5-coefficient model
     python tools/offline_calibration.py <image_dir> <serial> --lens normal
+
+    # Use manufacturer spec as an intrinsic guess (K not fixed)
+    python tools/offline_calibration.py <image_dir> <serial> \
+        --use-spec-guess --focal-mm 3.5 --pixel-pitch-mm 0.003
+
+    # Also fix the aspect ratio fx/fy (1.0 for square pixels)
+    python tools/offline_calibration.py <image_dir> <serial> \
+        --use-spec-guess --focal-mm 3.5 --pixel-pitch-mm 0.003 \
+        --fix-aspect-ratio
 """
 
 from __future__ import annotations
@@ -29,6 +38,7 @@ import sys
 from pathlib import Path
 
 import cv2
+import numpy
 
 # Add src/synchroCap to import path
 _src_dir = Path(__file__).resolve().parent.parent / "src" / "synchroCap"
@@ -67,14 +77,92 @@ def parse_args() -> argparse.Namespace:
              "'wide' = rational 8-coefficient model (default: wide)",
     )
     parser.add_argument(
+        "--use-spec-guess",
+        action="store_true",
+        help="Build an initial camera matrix from manufacturer spec values "
+             "(--focal-mm, --pixel-pitch-mm) and pass it as an intrinsic "
+             "guess (CALIB_USE_INTRINSIC_GUESS). The matrix is NOT fixed; it "
+             "is only the optimization starting point.",
+    )
+    parser.add_argument(
+        "--focal-mm",
+        type=float,
+        default=None,
+        help="Lens focal length in mm (required with --use-spec-guess). "
+             "e.g. 3.5",
+    )
+    parser.add_argument(
+        "--pixel-pitch-mm",
+        type=float,
+        default=None,
+        help="Sensor pixel pitch in mm, assumed square (required with "
+             "--use-spec-guess). e.g. 0.003",
+    )
+    parser.add_argument(
+        "--fix-aspect-ratio",
+        action="store_true",
+        help="Fix the aspect ratio fx/fy to the spec value (1.0 for square "
+             "pixels) during optimization (CALIB_FIX_ASPECT_RATIO). Requires "
+             "--use-spec-guess. Scale (absolute focal length) and principal "
+             "point remain free.",
+    )
+    parser.add_argument(
         "--output-dir",
         help="Output directory for TOML/JSON. Defaults to <image_dir>.",
     )
     return parser.parse_args()
 
 
+def _build_initial_camera_matrix(
+    focal_mm: float, pixel_pitch_mm: float, image_size: tuple[int, int]
+) -> numpy.ndarray:
+    """Build initial camera matrix K from manufacturer spec values.
+
+    fx = fy = focal_mm / pixel_pitch_mm (square pixels assumed),
+    cx = W / 2, cy = H / 2.
+
+    Args:
+        focal_mm: Lens focal length in mm.
+        pixel_pitch_mm: Sensor pixel pitch in mm (square pixels).
+        image_size: Image size (width, height) in pixels.
+
+    Returns:
+        3x3 camera matrix, float64.
+    """
+    w, h = image_size
+    f_px = focal_mm / pixel_pitch_mm
+    return numpy.array([
+        [f_px,  0.0,  w / 2.0],
+        [ 0.0, f_px,  h / 2.0],
+        [ 0.0,  0.0,      1.0],
+    ], dtype=numpy.float64)
+
+
 def main() -> int:
     args = parse_args()
+
+    # Argument-only validation (before any image detection work).
+    if args.fix_aspect_ratio and not args.use_spec_guess:
+        print(
+            "Error: --fix-aspect-ratio requires --use-spec-guess",
+            file=sys.stderr,
+        )
+        return 1
+    if args.use_spec_guess:
+        if args.focal_mm is None or args.pixel_pitch_mm is None:
+            print(
+                "Error: --use-spec-guess requires --focal-mm and "
+                "--pixel-pitch-mm",
+                file=sys.stderr,
+            )
+            return 1
+        if args.focal_mm <= 0 or args.pixel_pitch_mm <= 0:
+            print(
+                "Error: --focal-mm and --pixel-pitch-mm must be positive",
+                file=sys.stderr,
+            )
+            return 1
+
     image_dir = Path(args.image_dir)
     if not image_dir.is_dir():
         print(f"Error: {image_dir} is not a directory", file=sys.stderr)
@@ -133,10 +221,40 @@ def main() -> int:
         )
         return 1
 
+    # Build initial camera matrix from spec values (image_size is now known).
+    initial_camera_matrix = None
+    if args.use_spec_guess:
+        initial_camera_matrix = _build_initial_camera_matrix(
+            args.focal_mm, args.pixel_pitch_mm, image_size
+        )
+        K0 = initial_camera_matrix
+        w, h = image_size
+        print(f"\nInitial camera matrix (from spec, used as intrinsic guess):")
+        print(
+            f"  focal={args.focal_mm}mm  pixel_pitch={args.pixel_pitch_mm}mm  "
+            f"image={w}x{h}"
+        )
+        print(
+            f"  fx={K0[0,0]:.2f}  fy={K0[1,1]:.2f}  "
+            f"cx={K0[0,2]:.2f}  cy={K0[1,2]:.2f}"
+        )
+        print(f"  (NOT fixed; optimization starting point only)")
+        if args.fix_aspect_ratio:
+            ratio = K0[0, 0] / K0[1, 1]
+            print(
+                f"  aspect ratio fx/fy FIXED at {ratio:.3f} "
+                f"(scale and principal point remain free)"
+            )
+
     # Calibrate
     engine = CalibrationEngine()
     calib_result = engine.calibrate(
-        object_points_list, image_points_list, image_size, lens_model=args.lens
+        object_points_list,
+        image_points_list,
+        image_size,
+        lens_model=args.lens,
+        initial_camera_matrix=initial_camera_matrix,
+        fix_aspect_ratio=args.fix_aspect_ratio,
     )
 
     # Display results

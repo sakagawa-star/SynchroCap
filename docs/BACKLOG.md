@@ -16,7 +16,7 @@
 | [feat-017](issues/feat-017-live-view-during-recording/) | Feature | Live View During Recording | Closed |
 | [feat-018](issues/feat-018-encode-quality-improvement/) | Feature | Raw→MP4 Encode Quality Improvement | Closed |
 | [feat-019](issues/feat-019-lens-model-selection/) | Feature | Offline Calibration - Lens Model Selection (Normal / Wide-Angle) | Open |
-| [feat-020](issues/feat-020-spec-intrinsic-guess/) | Feature | Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess) | Open |
+| [feat-020](issues/feat-020-spec-intrinsic-guess/) | Feature | Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess) | Closed |
 
 ## Closed
 

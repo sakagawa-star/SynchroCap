@@ -240,6 +240,156 @@ class TestCalibrationEngine:
             json_dict = json.load(f)
         assert len(json_dict["dist_coeffs"]) == 5
 
+    # --- feat-020: spec-based intrinsic guess ---
+
+    def test_calibrate_with_intrinsic_guess_returns_result(self):
+        """Intrinsic guess with a near-known initial K returns a result."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=20)
+        result = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=known.copy(),
+        )
+        assert isinstance(result, CalibrationResult)
+        assert result.rms_error < 1.0
+
+    def test_calibrate_intrinsic_guess_accuracy(self):
+        """With an intrinsic guess, estimated K stays within 5% of known."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=20)
+        # Start 5% off so the optimizer must move toward the true values.
+        initial = known.copy()
+        initial[0, 0] *= 1.05
+        initial[1, 1] *= 1.05
+        result = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=initial,
+        )
+        assert abs(result.camera_matrix[0, 0] - known[0, 0]) < known[0, 0] * 0.05
+        assert abs(result.camera_matrix[1, 1] - known[1, 1]) < known[1, 1] * 0.05
+
+    def test_calibrate_intrinsic_guess_not_fixed(self):
+        """Initial K is a starting point only; the result must differ from it."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=20)
+        # Deliberately 5% off on every entry so the optimizer must move K.
+        initial = known.copy()
+        initial[0, 0] *= 1.05
+        initial[1, 1] *= 1.05
+        initial[0, 2] *= 1.05
+        initial[1, 2] *= 1.05
+        result = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=initial,
+        )
+        assert not numpy.allclose(result.camera_matrix, initial)
+
+    def test_calibrate_invalid_initial_matrix_shape_raises(self):
+        """A non-(3,3) initial matrix should raise ValueError."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        bad = numpy.eye(2, dtype=numpy.float64)
+        with pytest.raises(ValueError, match="initial_camera_matrix must be shape"):
+            self.engine.calibrate(
+                obj_pts, img_pts, img_size, initial_camera_matrix=bad,
+            )
+
+    def test_calibrate_default_no_guess(self):
+        """Omitting initial_camera_matrix keeps the legacy behavior."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        result = self.engine.calibrate(obj_pts, img_pts, img_size)
+        assert isinstance(result, CalibrationResult)
+
+    def test_calibrate_guess_with_normal_lens(self):
+        """Intrinsic guess composes with lens_model='normal' (5 coeffs)."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=10)
+        result = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            lens_model="normal",
+            initial_camera_matrix=known.copy(),
+        )
+        assert result.dist_coeffs.shape == (1, 5)
+
+    def test_calibrate_guess_does_not_mutate_input(self):
+        """The caller's initial matrix must be unchanged after calibration."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=10)
+        initial = known.copy()
+        before = initial.copy()
+        self.engine.calibrate(
+            obj_pts, img_pts, img_size, initial_camera_matrix=initial,
+        )
+        assert numpy.array_equal(initial, before)
+
+    def test_calibrate_fix_aspect_ratio_keeps_fx_eq_fy(self):
+        """Fixing the aspect ratio (square init) keeps fx == fy."""
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=20)
+        # Square initial K (fx == fy), scaled 5% off the true value.
+        initial = known.copy()
+        initial[0, 0] = known[0, 0] * 1.05
+        initial[1, 1] = known[0, 0] * 1.05  # keep fx == fy
+        result = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=initial,
+            fix_aspect_ratio=True,
+        )
+        assert numpy.isclose(
+            result.camera_matrix[0, 0], result.camera_matrix[1, 1]
+        )
+        assert result.rms_error < 1.0
+
+    def test_calibrate_fix_aspect_ratio_requires_initial_matrix(self):
+        """fix_aspect_ratio without an initial matrix should raise ValueError."""
+        obj_pts, img_pts, img_size, _ = _generate_synthetic_data(num_images=10)
+        with pytest.raises(ValueError, match="fix_aspect_ratio=True requires"):
+            self.engine.calibrate(
+                obj_pts, img_pts, img_size, fix_aspect_ratio=True,
+            )
+
+    def test_calibrate_fix_aspect_ratio_default_false(self):
+        """Without the flag the ratio is free; with it the ratio is held.
+
+        Judge by the fx/fy ratio, NOT RMS: a wrong fixed ratio can still
+        produce RMS < 1.0 on synthetic data, so RMS cannot distinguish the
+        two cases.
+        """
+        obj_pts, img_pts, img_size, known = _generate_synthetic_data(num_images=20)
+        # Non-square initial K: fx = 1.1 * fy.
+        initial = known.copy()
+        initial[1, 1] = known[1, 1]          # fy = 800
+        initial[0, 0] = known[1, 1] * 1.1    # fx = 880 -> ratio 1.1
+
+        free = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=initial.copy(),
+            fix_aspect_ratio=False,
+        )
+        fixed = self.engine.calibrate(
+            obj_pts, img_pts, img_size,
+            initial_camera_matrix=initial.copy(),
+            fix_aspect_ratio=True,
+        )
+        ratio_free = free.camera_matrix[0, 0] / free.camera_matrix[1, 1]
+        ratio_fixed = fixed.camera_matrix[0, 0] / fixed.camera_matrix[1, 1]
+        # Free: optimizer recovers the true square ratio (~1.0).
+        assert abs(ratio_free - 1.0) < 0.02
+        # Fixed: the initial ratio (1.1) is preserved.
+        assert abs(ratio_fixed - 1.1) < 0.01
+
+
+class TestBuildInitialCameraMatrix:
+    """Tests for offline_calibration._build_initial_camera_matrix (feat-020)."""
+
+    def test_build_initial_camera_matrix(self):
+        """K is built from spec: fx=fy=focal/pitch, cx=W/2, cy=H/2."""
+        sys.path.insert(
+            0, str(Path(__file__).resolve().parent.parent / "tools")
+        )
+        from offline_calibration import _build_initial_camera_matrix
+
+        K = _build_initial_camera_matrix(3.5, 0.003, (1920, 1080))
+        assert K.shape == (3, 3)
+        assert numpy.isclose(K[0, 0], 3.5 / 0.003)   # fx ~= 1166.67
+        assert numpy.isclose(K[1, 1], 3.5 / 0.003)   # fy ~= 1166.67
+        assert numpy.isclose(K[0, 0], K[1, 1])       # square -> ratio 1.0 (FR-004)
+        assert numpy.isclose(K[0, 2], 960.0)         # cx = W/2
+        assert numpy.isclose(K[1, 2], 540.0)         # cy = H/2
+
 
 _REAL_IMAGE_DIR = Path(__file__).resolve().parent.parent / "src" / "synchroCap" / "captures" / "20260318-141544" / "intrinsics" / "cam05520125"
 

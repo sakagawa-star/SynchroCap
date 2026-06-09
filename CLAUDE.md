@@ -225,6 +225,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **feat-020**: Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess / --fix-aspect-ratio) → `docs/issues/feat-020-spec-intrinsic-guess/`
 - **feat-018**: Raw→MP4 Encode Quality Improvement → `docs/issues/feat-018-encode-quality-improvement/`
 - **feat-013**: Camera Calibration - Session Save/Resume (Board Settings) → `docs/issues/feat-013-session-save-resume/`
 - **feat-011**: Camera Calibration - Calibration Calculation + Result Display → `docs/issues/feat-011-calibration-calculation/`

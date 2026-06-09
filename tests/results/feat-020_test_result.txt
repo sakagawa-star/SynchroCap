@@ -1,0 +1,39 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/micromamba/envs/SynchroCap/bin/python3.10
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/SynchroCap
+plugins: anyio-4.12.0
+collecting ... collected 30 items
+
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_returns_result PASSED [  3%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rms_error_reasonable PASSED [  6%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_shape PASSED [ 10%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_dist_coeffs_shape PASSED [ 13%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_length PASSED [ 16%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_per_image_errors_non_negative PASSED [ 20%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_camera_matrix_close_to_known PASSED [ 23%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_rvecs_tvecs_length PASSED [ 26%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_raises_valueerror PASSED [ 30%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_empty_list_raises_valueerror PASSED [ 33%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_exactly_four PASSED [ 36%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_min_captures_constant PASSED [ 40%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_wide_returns_8_coeffs PASSED [ 43%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_normal_returns_5_coeffs PASSED [ 46%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_default_is_wide PASSED [ 50%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_invalid_lens_model_raises PASSED [ 53%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_normal_accuracy PASSED [ 56%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_export_normal_5_distortions PASSED [ 60%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_with_intrinsic_guess_returns_result PASSED [ 63%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_intrinsic_guess_accuracy PASSED [ 66%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_intrinsic_guess_not_fixed PASSED [ 70%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_invalid_initial_matrix_shape_raises PASSED [ 73%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_default_no_guess PASSED [ 76%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_guess_with_normal_lens PASSED [ 80%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_guess_does_not_mutate_input PASSED [ 83%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_fix_aspect_ratio_keeps_fx_eq_fy PASSED [ 86%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_fix_aspect_ratio_requires_initial_matrix PASSED [ 90%]
+tests/test_calibration_engine.py::TestCalibrationEngine::test_calibrate_fix_aspect_ratio_default_false PASSED [ 93%]
+tests/test_calibration_engine.py::TestBuildInitialCameraMatrix::test_build_initial_camera_matrix PASSED [ 96%]
+tests/test_calibration_engine.py::TestWideAngleCalibration::test_wide_angle_calibration PASSED [100%]
+
+============================== 30 passed in 3.18s ==============================
