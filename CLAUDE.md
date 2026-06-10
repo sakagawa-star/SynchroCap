@@ -191,6 +191,7 @@ docs/issues/
 
 feat-014: Wide-Angle Lens Support (On Hold — カメラ映像が撮れないため手動テスト不可。実装・自動テスト完了済み)
 feat-015: Export Improvements - Naming Convention & Completion Notification (On Hold — 同上)
+feat-021: ChArUco Board Capture Guide (Open — 撮影ガイドを参考資料として整備済み `docs/issues/feat-021-charuco-capture-guide/capture_guide.md`。アプリへの取り込み方は未定)
 
 ### カメラキャリブレーション全体計画（feat-008〜013）
 
