@@ -28,6 +28,10 @@ class DetectionResult:
 class BoardDetector:
     """ChArUco / checkerboard detection engine."""
 
+    # 共線判定の特異値比の下限。共線点群は比 ≈ 0（float64で1e-16オーダー）、
+    # 非共線の最小ケース（2列6点）でも 0.2 以上であり、5桁以上の余裕がある。
+    COLLINEARITY_RATIO_MIN: float = 1e-6
+
     def __init__(
         self,
         board_type: str = "charuco",
@@ -155,6 +159,16 @@ class BoardDetector:
         obj_points = all_obj_points[charuco_ids.flatten()]  # shape=(N, 3)
         obj_points = obj_points.reshape(-1, 1, 3)
 
+        if self._is_collinear(obj_points):
+            return DetectionResult(
+                success=False,
+                image_points=charuco_corners,
+                object_points=None,
+                charuco_ids=charuco_ids,
+                num_corners=n,
+                failure_reason=f"Corners are collinear ({n} corners on a line)",
+            )
+
         return DetectionResult(
             success=True,
             image_points=charuco_corners,
@@ -162,6 +176,21 @@ class BoardDetector:
             charuco_ids=charuco_ids,
             num_corners=n,
             failure_reason="",
+        )
+
+    @staticmethod
+    def _is_collinear(obj_points: numpy.ndarray) -> bool:
+        """object_points (N,1,3) が共線配置かを判定する。
+
+        共線点群はホモグラフィを定義できず cv2.calibrateCamera() の
+        内部初期推定 (initIntrinsicParams2D) をクラッシュさせる。
+        中心化した2Dボード座標のSVDの特異値比で判定する。
+        """
+        obj_2d = obj_points.reshape(-1, 3)[:, :2].astype(numpy.float64)
+        centered = obj_2d - obj_2d.mean(axis=0)
+        sv = numpy.linalg.svd(centered, compute_uv=False)
+        return bool(
+            sv[0] <= 0.0 or sv[1] / sv[0] < BoardDetector.COLLINEARITY_RATIO_MIN
         )
 
     def _detect_checkerboard(self, frame_bgr: numpy.ndarray) -> DetectionResult:

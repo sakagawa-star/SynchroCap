@@ -437,12 +437,14 @@ OpenCV 4.7+の新API（`cv2.aruco.CharucoDetector`）を使用する。旧API（
    ```
 3. `charuco_corners` が `None` または空の場合: `success=False, failure_reason="No board detected"`
 4. コーナー数 < 6 の場合: `success=False, failure_reason="Detected only {n} corners (minimum: 6)"`
-5. コーナー数 >= 6 の場合: `success=True`。object_pointsは `board.getChessboardCorners()` から対応するIDのコーナーを抽出:
+5. コーナー数 >= 6 の場合: object_pointsは `board.getChessboardCorners()` から対応するIDのコーナーを抽出:
    ```python
    all_obj_points = board.getChessboardCorners()  # shape=(total_corners, 3), float32
    obj_points = all_obj_points[charuco_ids.flatten()]  # shape=(N, 3), float32
    obj_points = obj_points.reshape(-1, 1, 3)           # shape=(N, 1, 3)
    ```
+6. 全コーナーが共線の場合（`_is_collinear()`: float64 に変換・中心化した2Dボード座標のSVD特異値比 `sv[1]/sv[0] < COLLINEARITY_RATIO_MIN (1e-6)`）: `success=False, failure_reason="Corners are collinear ({n} corners on a line)"`（bug-009で追加。共線点群はホモグラフィを定義できず `cv2.calibrateCamera()` の内部初期推定をクラッシュさせるため）
+7. 上記をすべて通過した場合: `success=True`
 
 **設計判断**: `board.getChessboardCorners()` は `cv2.aruco.CharucoBoard` の基底クラス `cv2.aruco.Board` に定義されたメソッドで、全ChArUcoコーナーの3D座標を返す。`charuco_ids` でインデックスして検出されたコーナーの座標を取得する。後続のfeat-009で `board.matchImagePoints()` への移行を検討する。
 

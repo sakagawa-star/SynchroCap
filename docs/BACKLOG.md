@@ -17,6 +17,7 @@
 | [feat-018](issues/feat-018-encode-quality-improvement/) | Feature | Raw→MP4 Encode Quality Improvement | Closed |
 | [feat-019](issues/feat-019-lens-model-selection/) | Feature | Offline Calibration - Lens Model Selection (Normal / Wide-Angle) | Open |
 | [feat-020](issues/feat-020-spec-intrinsic-guess/) | Feature | Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess) | Closed |
+| [bug-009](issues/bug-009-collinear-corners-crash/) | Bug | 共線コーナーのキャプチャでキャリブレーション計算がクラッシュする | Closed |
 
 ## Closed
 

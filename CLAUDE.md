@@ -225,6 +225,7 @@ feat-013: セッション保存/再開（Board Settings の永続化を含む）
 
 ## 完了済み案件
 
+- **bug-009**: 共線コーナーのキャプチャでキャリブレーション計算がクラッシュする → `docs/issues/bug-009-collinear-corners-crash/`
 - **feat-020**: Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess / --fix-aspect-ratio) → `docs/issues/feat-020-spec-intrinsic-guess/`
 - **feat-018**: Raw→MP4 Encode Quality Improvement → `docs/issues/feat-018-encode-quality-improvement/`
 - **feat-013**: Camera Calibration - Session Save/Resume (Board Settings) → `docs/issues/feat-013-session-save-resume/`

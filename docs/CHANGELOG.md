@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- [bug-009](issues/bug-009-collinear-corners-crash/) 共線コーナーのキャプチャでキャリブレーション計算がクラッシュする
+  - `BoardDetector._detect_charuco()` に共線判定 `_is_collinear()` を追加（float64化・中心化した2Dボード座標のSVD特異値比 < 1e-6 で判定）
+  - ボード端の1列だけが映った検出（6点・完全共線）が `cv2.calibrateCamera()` 内部の `initIntrinsicParams2D` をクラッシュさせる問題を検出層で防止
+  - オフラインツール（共線画像を理由付きスキップ）と Tab5（共線フレームの自動キャプチャ抑止・ヒートマップ非加算）の両経路を保護
 - [bug-008](issues/bug-008-heatmap-overwrite/) ヒートマップの高密度領域が低密度領域に上書きされる
   - 相対正規化（max_val除算）から固定スケール正規化（SAT_CAPTURES=3で飽和）に変更
   - キャプチャ追加後も既存の高密度領域の赤色が維持される
