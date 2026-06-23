@@ -49,7 +49,8 @@ class BoardSettingsStore:
         """Save board settings to JSON file.
 
         Args:
-            settings: Dict with board_type, cols, rows, square_mm, marker_mm.
+            settings: Dict with board_type, cols, rows, square_mm,
+                marker_mm, lens_model.
 
         Returns:
             True if saved successfully, False otherwise.

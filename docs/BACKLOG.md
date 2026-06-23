@@ -19,6 +19,7 @@
 | [feat-020](issues/feat-020-spec-intrinsic-guess/) | Feature | Offline Calibration - Spec-based Intrinsic Guess (--use-spec-guess) | Closed |
 | [bug-009](issues/bug-009-collinear-corners-crash/) | Bug | 共線コーナーのキャプチャでキャリブレーション計算がクラッシュする | Closed |
 | [feat-021](issues/feat-021-charuco-capture-guide/) | Feature | ChArUco Board Capture Guide（撮影ガイドのアプリ取り込み） | Open |
+| [feat-022](issues/feat-022-gui-lens-model-selection/) | Feature | GUI Calibration - Lens Model Selection (Normal / Wide) | Open |
 
 ## Closed
 

@@ -112,6 +112,7 @@ class CalibrationWidget(QWidget):
         self._rows: int = 7
         self._square_mm: float = 30.0
         self._marker_mm: float = 22.0
+        self._lens_model: str = "normal"  # "normal" | "wide"
 
         # Persistent storage
         appdata = QStandardPaths.writableLocation(
@@ -243,6 +244,10 @@ class CalibrationWidget(QWidget):
         self._marker_button = QPushButton("22.0 mm")
         self._marker_button.clicked.connect(self._on_marker_button_clicked)
         board_form.addRow("Marker size:", self._marker_button)
+
+        self._lens_button = QPushButton("Normal")
+        self._lens_button.clicked.connect(self._on_lens_button_clicked)
+        board_form.addRow("Lens:", self._lens_button)
 
         left_layout.addWidget(board_group)
 
@@ -642,6 +647,7 @@ class CalibrationWidget(QWidget):
                 object_points_list,
                 image_points_list,
                 self._capture_image_size,
+                lens_model=self._lens_model,
             )
         except cv2.error as e:
             self._status_label.setText(f"Calibration failed: {e}")
@@ -701,12 +707,11 @@ class CalibrationWidget(QWidget):
         self._cy_label.setText(f"{result.camera_matrix[1, 2]:.1f}")
 
         d = result.dist_coeffs.flatten()
-        self._dist_label.setText(
-            f"k1={d[0]:.4f}, k2={d[1]:.4f}\n"
-            f"p1={d[2]:.4f}, p2={d[3]:.4f}\n"
-            f"k3={d[4]:.4f}, k4={d[5]:.4f}\n"
-            f"k5={d[6]:.4f}, k6={d[7]:.4f}"
-        )
+        labels = ["k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6"]
+        parts = [f"{labels[i]}={d[i]:.4f}" for i in range(len(d))]
+        # Show two coefficients per line (matches the previous 2-column layout).
+        lines = [", ".join(parts[i:i + 2]) for i in range(0, len(parts), 2)]
+        self._dist_label.setText("\n".join(lines))
 
     def _clear_calibration_result(self) -> None:
         """Clear result labels and internal result state."""
@@ -794,6 +799,7 @@ class CalibrationWidget(QWidget):
             "rows": self._rows,
             "square_mm": self._square_mm,
             "marker_mm": self._marker_mm,
+            "lens_model": self._lens_model,
         })
 
     def _load_board_settings(self) -> None:
@@ -822,6 +828,17 @@ class CalibrationWidget(QWidget):
         if isinstance(mk, (int, float)) and 1.0 <= mk <= 200.0:
             self._marker_mm = float(mk)
 
+        self._lens_model = self._validate_lens_model(data.get("lens_model"))
+
+    @staticmethod
+    def _validate_lens_model(value) -> str:
+        """Return value if it is a valid lens_model, else default "normal"."""
+        return value if value in ("normal", "wide") else "normal"
+
+    def _lens_label(self) -> str:
+        """Return display text for the current lens model."""
+        return "Normal" if self._lens_model == "normal" else "Wide-Angle"
+
     def _update_board_settings_ui(self) -> None:
         """Update board settings button texts from internal state."""
         self._type_button.setText("ChArUco" if self._board_type == "charuco" else "Checkerboard")
@@ -829,6 +846,7 @@ class CalibrationWidget(QWidget):
         self._rows_button.setText(str(self._rows))
         self._square_button.setText(f"{self._square_mm:.1f} mm")
         self._marker_button.setText(f"{self._marker_mm:.1f} mm")
+        self._lens_button.setText(self._lens_label())
 
     def _apply_board_config(self) -> None:
         """Apply current board config to detector. Enforce marker_mm < square_mm."""
@@ -869,6 +887,30 @@ class CalibrationWidget(QWidget):
         self._board_type = "charuco" if combo.currentIndex() == 0 else "checkerboard"
         self._type_button.setText("ChArUco" if self._board_type == "charuco" else "Checkerboard")
         self._apply_board_config()
+        self._save_board_settings()
+
+    def _on_lens_button_clicked(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Lens Type")
+        layout = QVBoxLayout(dlg)
+
+        combo = QComboBox()
+        combo.addItems(["Normal", "Wide-Angle"])
+        combo.setCurrentIndex(0 if self._lens_model == "normal" else 1)
+        layout.addWidget(combo)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._lens_model = "normal" if combo.currentIndex() == 0 else "wide"
+        self._lens_button.setText(self._lens_label())
         self._save_board_settings()
 
     def _on_cols_button_clicked(self) -> None:
