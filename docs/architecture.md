@@ -1,5 +1,8 @@
 # Architecture Overview
 
+> **位置づけ**: 中核アプリ（PTP同期録画）のアーキテクチャ概要。対象は現行 `src/synchroCap/`。
+> Calibration（Tab5）等の増分機能は本図に含まれない場合がある（各 `docs/issues/{案件}/design.md` を参照）。
+
 ## システム構成図
 
 ```

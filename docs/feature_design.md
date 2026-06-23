@@ -1,9 +1,11 @@
 # 機能設計書: PTP同期複数カメラ録画機能
 
-対象: `ic4.demoapp/demoapp.py`
+対象: `src/synchroCap/`（中核アプリ：PTP同期複数カメラ録画）
 基準文書: `requirements.md`
-参照実装: `debug.demoapp/s10_rec4cams.py`
+参照実装（由来プロトタイプ）: `debug.demoapp/s10_rec4cams.py`
 調査記録: `investigation.md`
+
+> **位置づけ**: 本書は中核アプリ（PTP同期録画）の機能設計書。増分機能は `docs/issues/{案件}/design.md` を参照。
 
 ---
 

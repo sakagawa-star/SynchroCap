@@ -1,6 +1,9 @@
 # 要求仕様（最終更新版）
-対象: ic4.demoapp/demoapp.py  
+対象: `src/synchroCap/`（中核アプリ：PTP同期複数カメラ録画）
 目的: PTP 同期 + Action Scheduler による複数カメラ同時録画（MP4 / ffmpeg）
+
+> **位置づけ**: 本書は中核アプリ（PTP同期録画）の要求仕様。キャリブレーション等の増分機能は `docs/issues/{案件}/requirements.md` を参照。
+> 元はプロトタイプ `ic4.demoapp/demoapp.py` 向けに作成され、機能は現行 `src/synchroCap/` に統合済み。
 
 > **注意（Codex 用）**
 > - 本文は「要求仕様」のみを記述する。
@@ -15,7 +18,7 @@
 ### 1.1 最終目的
 PC を PTP グランドマスターとし、PTP 同期された複数カメラについて、  
 Action Scheduler（Action0）を用いて FrameStart を同時に発火させ、  
-各カメラの映像を録画する機能を GUI アプリ `ic4.demoapp/demoapp.py` に組み込む。
+各カメラの映像を録画する機能を GUI アプリ `src/synchroCap/` に実装する。
 
 ### 1.2 「同時開始」の定義
 「同時開始」とは、カメラ側の FrameStart が Action Scheduler（Action0）によって発火し始めた時刻を指す。  

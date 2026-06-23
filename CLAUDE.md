@@ -64,10 +64,11 @@ SynchroCap/
 │   ├── BUGFIX_STANDARD.md    # 不具合修正 記述基準
 │   ├── TECH_STACK.md         # 技術スタック定義書
 │   ├── codex-exec-ubuntu24-bwrap-fix.md  # Codexレビュー実行時のbwrapエラー対処
-│   ├── architecture.md       # アーキテクチャ概要
-│   ├── requirements.md       # 要件定義
-│   ├── feature_design.md     # 機能設計書
-│   └── issues/               # 案件ディレクトリ
+│   ├── architecture.md       # 中核アプリ(PTP録画)のアーキテクチャ概要
+│   ├── requirements.md       # 中核アプリ(PTP録画)の要求仕様（基盤）
+│   ├── feature_design.md     # 中核アプリ(PTP録画)の機能設計書（基盤）
+│   ├── investigation.md      # 中核アプリ(PTP録画)の調査記録（INVログ）
+│   └── issues/               # 案件ディレクトリ（増分機能 feat/bug ごと）
 │       └── {type}-{number}-{slug}/  # 個別案件
 ├── tests/                    # テストコード
 │   └── results/              # テスト結果保存先
